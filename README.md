@@ -12,17 +12,15 @@ Then, drop the following files into that folder:
 - sensor.py
 
 ## HACS Support
-You will need to add this repository manually to HACS, repository URL is https://github.com/bremor 
+You will need to add this repository manually to HACS, repository URL is https://github.com/bremor/public_transport_victoria 
 
 ## Configuration
-Either install the package [weather.yaml](https://github.com/DavidFW1960/bom_forecast/blob/master/weather.yaml) (see below under alternate installation)
-
-Or manually, add the following to your `configuration.yaml` file:
+Add the following to your `configuration.yaml` file:
 
 ```yaml
 # Example configuration.yaml entry
 sensor:
-  - platform: bom_forecast
+  - platform: public_transport_victoria
     product_id: !secret my_bom_product_id
     name: !secret my_bom_name         #In my examples I use Gosford
     forecast_days: 6
