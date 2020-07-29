@@ -21,26 +21,12 @@ Add the following to your `configuration.yaml` file:
 # Example configuration.yaml entry
 sensor:
   - platform: public_transport_victoria
-    product_id: !secret my_bom_product_id
-    name: !secret my_bom_name         #In my examples I use Gosford
-    forecast_days: 6
-    rest_of_today: true
-    friendly: false
-    friendly_state_format: '{max}, {summary}'
-    monitored_conditions:
-      - 'max'
-      - 'min'
-      - 'chance_of_rain'
-      - 'possible_rainfall'
-      - 'summary'
-      - 'detailed_summary'
-      - 'icon'
-      - 'uv_alert'
-      - 'fire_danger'
+    id: 1234567
+    api_key: 357dts35-930b-467c-844d-21d74f15c38a
+    stop_id: 1141
+    max_results: 4
+    direction_id: 1
 ```
-
-This example uses the secrets.yaml file for the product_id and name. Up to you if you want to do this or not.
-If you use the package below you will still need to edit in the correct details.
 
 To get the Product ID for any BOM city:
 - Go to [this](http://www.bom.gov.au/nsw/observations/map.shtml) website and search for "City Forecast", or "Town Forecast".
