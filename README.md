@@ -18,6 +18,13 @@ You will need to add this repository manually to HACS, repository URL is https:/
 ### Developer ID and API Key
 Please follow the instructions on http://ptv.vic.gov.au/ptv-timetable-api/ for obtaining a Developer ID and API Key.
 
+## Stop Information
+Using this website, https://www.ptv.vic.gov.au/departures, select your details:
+1. Mode of transport,
+2. Your line or route,
+3. Select a direction,
+4. Select your stop.
+
 ## Configuration
 Add the following to your `configuration.yaml` file:
 
