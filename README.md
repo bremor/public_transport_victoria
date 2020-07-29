@@ -12,7 +12,7 @@ Then, drop the following files into that folder:
 - sensor.py
 
 ## HACS Support
-This integration is now part of the default HACS store. You should not need to add it manually. Add this Integration to HACS repo is https://github.com/DavidFW1960/bom_forecast 
+You will need to add this repository manually to HACS, repository URL is https://github.com/bremor 
 
 ## Configuration
 Either install the package [weather.yaml](https://github.com/DavidFW1960/bom_forecast/blob/master/weather.yaml) (see below under alternate installation)
