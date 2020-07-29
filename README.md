@@ -14,9 +14,9 @@ Then, drop the following files into that folder:
 ## HACS Support
 You will need to add this repository manually to HACS, repository URL is https://github.com/bremor/public_transport_victoria 
 
-## Requirements
+## Prerequisites
 ### Developer ID and API Key
-Please follow the instructions on http://ptv.vic.gov.au/ptv-timetable-api/ for obtaining a Developer ID and API Key
+Please follow the instructions on http://ptv.vic.gov.au/ptv-timetable-api/ for obtaining a Developer ID and API Key.
 
 ## Configuration
 Add the following to your `configuration.yaml` file:
