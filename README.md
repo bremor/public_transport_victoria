@@ -25,7 +25,7 @@ Using this website, https://www.ptv.vic.gov.au/departures, select your details:
 3. Select a direction,
 4. Select your stop.
 
-In the following example, route type is `0`, stop_id is `1141`, and direction ID is 
+In the following example, route type is `0`, stop_id is `1141`, and direction ID is `16`.
 ![Here is an example of where to find product id](img/ptv_example.JPG)
 ## Configuration
 Add the following to your `configuration.yaml` file:
