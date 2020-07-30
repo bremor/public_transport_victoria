@@ -48,6 +48,6 @@ Configuration variables:
 - **api_key** (*Required*): The developer key that name you receive directly from PTV.
 - **stop_id** (*Required*): The ID of the bus stop, train station, tram station, etc.
 - **max_results** (*Optional*): The maximum number of departures you would like to return. Default is 1.
-- **direction_id** (*Optional*): Which direction are you travelling in. Default is '{None}' which returns all directions.
+- **direction_id** (*Optional*): Which direction are you travelling in. Default is `{None}` which returns all directions.
 - **route_type** (*Optional*): Route type, e.g. train, tram, bus. Default is 0 which is for trains..
 - **monitored_conditions** (*Required*): A list of the conditions to monitor.
