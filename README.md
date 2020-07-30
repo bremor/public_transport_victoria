@@ -25,7 +25,7 @@ Using this website, https://www.ptv.vic.gov.au/departures, select your details:
 3. Select a direction,
 4. Select your stop.
 
-In the following example, route type is `0`, stop_id is `1141`, and direction ID is `16`.
+In the following example, route type is `0`, stop_id is `1141`, and direction ID is `16`. You can use these values to build your configuration.
 ![Here is an example of where to find product id](img/ptv_example.JPG)
 ## Configuration
 Add the following to your `configuration.yaml` file:
@@ -39,22 +39,15 @@ sensor:
     stop_id: 1141
     max_results: 4
     direction_id: 1
+    route_type: 0
 ```
-
-To get the Product ID for any BOM city:
-- Go to [this](http://www.bom.gov.au/nsw/observations/map.shtml) website and search for "City Forecast", or "Town Forecast".
-- The Product ID for your city will be in the left most column, or at the bottom of the page, and will look like "IDV10450"
-
-![Here is an example of where to find product id](bom_forecast_product.png)
-
-NOTE: The product id will be DIFFERENT to the one you use for the Core BOM Sensor Configuration. The numbers will not be the same.
 
 Configuration variables:
 
-- **product_id** (*Optional*): The Product ID string as identified from the BOM website.  If not given, defaults to the closest city.
-- **name** (*Optional*): The name you would like to give to the weather forecast.
-- **forecast_days** (*Optional*): The number of days of forecast you would like, maximum is 6. If not given, defaults to 6.
-- **rest_of_today** (*Optional*): Would you like to create a sensor for the forecast for the rest of today. Defaults to true.
-- **friendly** (*Optional*): Friendly mode will only create one sensor per day of forecast, and will have all the forecast information as sensor attributes. Defaults to false.
-- **friendly_state_format** (*Optional*): Friendly state format allows you to format the state of your forecast sensors when in friendly mode. For example, '{min} to {max}, {summary}' will display the state as '10 to 25, Cloudy'. Defaults to '{summary}'.
+- **id** (*Required*): The ID is your developer ID that you receive directly from PTV.
+- **api_key** (*Required*): The developer key that name you receive directly from PTV.
+- **stop_id** (*Required*): The ID of the bus stop, train station, tram station, etc.
+- **max_results** (*Optional*): The maximum number of departures you would like to return. Default is 1.
+- **direction_id** (*Optional*): Which direction are you travelling in. Default is '{None}' which returns all directions.
+- **route_type** (*Optional*): Route type, e.g. train, tram, bus. Default is 0 which is for trains..
 - **monitored_conditions** (*Required*): A list of the conditions to monitor.
