@@ -1,8 +1,9 @@
 {
   "domain": "public_transport_victoria",
-  "name": "Pubic Transport Victoria",
+  "name": "Public Transport Victoria",
+  "config_flow": true,
   "documentation": "https://github.com/bremor/public_transport_victoria",
+  "requirements": [],
   "dependencies": [],
-  "codeowners": ["@bremor"],
-  "requirements": []
+  "codeowners": ["@bremor"]
 }
