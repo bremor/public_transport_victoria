@@ -1,52 +1,49 @@
 [![hacs_badge](https://img.shields.io/badge/HACS-Default-orange.svg?style=for-the-badge)](https://github.com/custom-components/hacs)
 
-The `public transport victoria` sensor platform uses the [Public Transport Victoria (PTV)](http://www.bom.gov.au) as a source for forecast meteorological data.
+The `public transport victoria` sensor platform uses the [Public Transport Victoria (PTV)](http://www.bom.gov.au) as a source for public transport departure times for Victoria, Australia.
 
-## Manual Installation 
-To add Public Transport Victoria to your installation, create this folder structure in your /config directory:
-- “custom_components/public_transport_victoria”.
+# Installation (There are two methods, with HACS or manual)
 
-Then, drop the following files into that folder:
-- \_\_init__.py
-- manifest.json
-- sensor.py
+### 1. Easy Mode
 
-## HACS Support
-You will need to add this repository manually to HACS, repository URL is https://github.com/bremor/public_transport_victoria 
+We support [HACS](https://hacs.netlify.com/). Go to "STORE", search "Public Transport Victoria" and install.
+
+### 2. Manual
+
+Install it as you would do with any homeassistant custom component:
+
+1. Download `custom_components` folder.
+2. Copy the `public_transport_victoria` directory within the `custom_components` directory of your homeassistant installation.
+The `custom_components` directory resides within your homeassistant configuration directory.
+**Note**: if the custom_components directory does not exist, you need to create it.
+After a correct installation, your configuration directory should look like the following.
+
+    ```
+    └── ...
+    └── configuration.yaml
+    └── custom_components
+        └── public_transport_victoria
+            └── __init__.py
+            └── config_flow.py
+            └── const.py
+            └── sensor.py
+            └── manifest.json
+            └── sensor.py
+            └── strings.json
+            └── PublicTransportVictoria
+                └── public_transport_victoria.py
+            └── translations
+                └── en.json
+    ```
 
 ## Prerequisites
-### Developer ID and API Key
+
+### 1. Developer ID and API Key
 Please follow the instructions on http://ptv.vic.gov.au/ptv-timetable-api/ for obtaining a Developer ID and API Key.
 
-## Stop Information
-Using this website, https://www.ptv.vic.gov.au/departures, select your details:
-1. Mode of transport,
-2. Your line or route,
-3. Select a direction,
-4. Select your stop.
-
-In the following example, route type is `0`, stop_id is `1141`, and direction ID is `16`. You can use these values to build your configuration.
-![Here is an example of where to find product id](img/ptv_example.JPG)
-## Configuration
-Add the following to your `configuration.yaml` file:
-
-```yaml
-# Example configuration.yaml entry
-sensor:
-  - platform: public_transport_victoria
-    id: 1234567
-    api_key: 357dts35-930b-467c-844d-21d74f15c38a
-    stop_id: 1141
-    max_results: 4
-    direction_id: 1
-    route_type: 0
-```
-
-Configuration variables:
-
-- **id** (*Required*): The ID is your developer ID that you receive directly from PTV.
-- **api_key** (*Required*): The developer key that name you receive directly from PTV.
-- **stop_id** (*Required*): The ID of the bus stop, train station, tram station, etc.
-- **max_results** (*Optional*): The maximum number of departures you would like to return. Default is `1`.
-- **direction_id** (*Optional*): Which direction are you travelling in. Default is `None` which returns all directions.
-- **route_type** (*Optional*): Route type, e.g. train, tram, bus. Default is `0` which is for trains..
+# Configuration
+1. Goto the `Configuration` -> `Integrations` page.  
+2. On the bottom right of the page, click on the Orange `+` sign to add an integration.
+3. Search for `Public Transport Victoria`. (If you don't see it, try refreshing your browser page to reload the cache.)
+4. Enter the required information. (Developer ID/Developer)
+5. No reboot is required. You can relogin or change the password/settings by deleting and re-adding on this page.
