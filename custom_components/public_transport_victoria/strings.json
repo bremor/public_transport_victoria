@@ -1,0 +1,44 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "[%key:common::config_flow::title%]",
+        "data": {
+          "id": "[%key:common::config_flow::data::id%]",
+          "api_key": "[%key:common::config_flow::data::api_key%]"
+        }
+      },
+      "route_types": {
+        "title": "[%key:common::config_flow::title%]",
+        "data": {
+          "route_type": "[%key:common::config_flow::data::route_type%]"
+        }
+      },
+      "routes": {
+        "title": "[%key:common::config_flow::title%]",
+        "data": {
+          "route": "[%key:common::config_flow::data::route%]"
+        }
+      },
+      "directions": {
+        "title": "[%key:common::config_flow::title%]",
+        "data": {
+          "direction": "[%key:common::config_flow::data::direction%]"
+        }
+      },
+      "stops": {
+        "title": "[%key:common::config_flow::title%]",
+        "data": {
+          "stop": "[%key:common::config_flow::data::stop%]"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
+      "unknown": "[%key:common::config_flow::error::unknown%]"
+    },
+    "abort": {
+      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]"
+    }
+  }
+}
