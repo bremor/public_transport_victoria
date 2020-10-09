@@ -1,0 +1,11 @@
+"""Constants for the Public Transport Victoria integration."""
+
+CONF_DIRECTION = "direction"
+CONF_DIRECTION_NAME = "direction_name"
+CONF_ROUTE = "route"
+CONF_ROUTE_NAME = "route_name"
+CONF_ROUTE_TYPE = "route_type"
+CONF_ROUTE_TYPE_NAME = "route_type_name"
+CONF_STOP = "stop"
+CONF_STOP_NAME = "stop_name"
+DOMAIN = "public_transport_victoria"

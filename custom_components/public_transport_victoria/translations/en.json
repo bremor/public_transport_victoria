@@ -1,0 +1,44 @@
+{
+    "config": {
+        "abort": {
+            "already_configured": "[%key:common::config_flow::abort::already_configured_device%]"
+        },
+        "error": {
+            "cannot_connect": "Unable to connect",
+            "unknown": "Unknown error"
+        },
+        "step": {
+            "user": {
+                "title": "Set up Public Transport Victoria API",
+                "data": {
+                    "id": "Developer ID",
+                    "api_key": "Developer Key"
+                }
+            },
+            "route_types": {
+                "title": "Select your mode of transport",
+                "data": {
+                    "route_type": "Select mode"
+                }
+            },
+            "routes": {
+                "title": "Select your line or route",
+                "data": {
+                    "route": "Select line or route"
+                }
+            },
+            "directions": {
+                "title": "Select a direction",
+                "data": {
+                    "direction": "Select direction"
+                }
+            },
+            "stops": {
+                "title": "Select your stop",
+                "data": {
+                    "stop": "Select stop"
+                }
+            }
+        }
+   }
+}
