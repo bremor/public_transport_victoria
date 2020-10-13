@@ -6,7 +6,7 @@ The `public transport victoria` sensor platform uses the [Public Transport Victo
 
 ### 1. Easy Mode
 
-We support [HACS](https://hacs.netlify.com/). Go to "STORE", search "Public Transport Victoria" and install.
+Not just yet. ~~We support [HACS](https://hacs.netlify.com/). Go to "STORE", search "Public Transport Victoria" and install.~~
 
 ### 2. Manual
 
