@@ -33,6 +33,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                           entry.data[CONF_ROUTE],
                           entry.data[CONF_DIRECTION],
                           entry.data[CONF_STOP],
+                          entry.data[CONF_ROUTE_TYPE_NAME],
+                          entry.data[CONF_ROUTE_NAME],
+                          entry.data[CONF_DIRECTION_NAME],
+                          entry.data[CONF_STOP_NAME],
     )
     await connector._init()
 
