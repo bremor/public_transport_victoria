@@ -11,7 +11,7 @@ from homeassistant.util import Throttle
 BASE_URL = "https://timetableapi.ptv.vic.gov.au"
 DEPARTURES_PATH = "/v3/departures/route_type/{}/stop/{}/route/{}?direction_id={}&max_results={}"
 DIRECTIONS_PATH = "/v3/directions/route/{}"
-MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(minutes=1)
+MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(minutes=2)
 MAX_RESULTS = 5
 ROUTE_TYPES_PATH = "/v3/route_types"
 ROUTES_PATH = "/v3/routes?route_types={}"
@@ -25,7 +25,8 @@ class Connector:
     manufacturer = "Demonstration Corp"
 
     def __init__(self, hass, id, api_key, route_type=None, route=None,
-                 direction=None, stop=None):
+                 direction=None, stop=None, route_type_name=None,
+                 route_name=None, direction_name=None, stop_name=None):
         """Init Public Transport Victoria connector."""
         self.hass = hass
         self.id = id
@@ -34,6 +35,10 @@ class Connector:
         self.route = route
         self.direction = direction
         self.stop = stop
+        self.route_type_name = route_type_name
+        self.route_name = route_name
+        self.direction_name = direction_name
+        self.stop_name = stop_name
 
     async def _init(self):
         """Async Init Public Transport Victoria connector."""
