@@ -48,3 +48,37 @@ Please follow the instructions on http://ptv.vic.gov.au/ptv-timetable-api/ for o
 3. Search for `Public Transport Victoria`. (If you don't see it, try refreshing your browser page to reload the cache.)
 4. Enter the required information. (Developer ID/Developer)
 5. No reboot is required. You can relogin or change the password/settings by deleting and re-adding on this page.
+
+# Notes
+1. This integration will refresh data every 10 minutes. If you wish to update the departure information more frequently during interesting periods, you may use an automation like the one below. It will update the sensors every minute between 7:30AM-8:30AM and 4:45PM-5:45PM.
+```
+automation:
+
+  - alias: 'bom_melbourne_max_temp_c'
+    initial_state: true
+    trigger:
+      trigger:
+      - platform: time_pattern
+        minutes: "/1"
+    condition:
+      condition: or
+      conditions:
+        - condition: time
+          after: '07:30:00'
+          before: '08:30:00'
+        - condition: time
+          after: '16:45:00'
+          before: '17:45:00'
+    action:
+      - service: 'homeassistant.update_entity'
+        data:
+          message: 'Fixed max'
+      - service: 'python_script.set_state'
+        data:
+          entity_id:
+            - 'sensor.werribee_line_to_city_flinders_street_from_aircraft_station_0'
+            - 'sensor.werribee_line_to_city_flinders_street_from_aircraft_station_1'
+            - 'sensor.werribee_line_to_city_flinders_street_from_aircraft_station_2'
+            - 'sensor.werribee_line_to_city_flinders_street_from_aircraft_station_3'
+            - 'sensor.werribee_line_to_city_flinders_street_from_aircraft_station_4'
+```
