@@ -79,3 +79,4 @@ automation:
             - 'sensor.werribee_line_to_city_flinders_street_from_aircraft_station_3'
             - 'sensor.werribee_line_to_city_flinders_street_from_aircraft_station_4'
 ```
+2. All feature requests, issues and questions are welcome.
