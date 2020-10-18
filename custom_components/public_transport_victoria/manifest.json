@@ -3,7 +3,6 @@
   "name": "Public Transport Victoria",
   "config_flow": true,
   "documentation": "https://github.com/bremor/public_transport_victoria",
-  "issue_tracker": "https://github.com/bremor/public_transport_victoria/issues",
   "requirements": [],
   "dependencies": [],
   "codeowners": ["@bremor"]
