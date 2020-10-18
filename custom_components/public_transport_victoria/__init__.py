@@ -15,17 +15,14 @@ PLATFORMS = ["sensor"]
 
 
 async def async_setup(hass: HomeAssistant, config: dict):
-    """Set up the MyDlink component."""
-    # Ensure our name space for storing objects is a known type. A dict is
-    # common/preferred as it allows a separate instance of your class for each
-    # instance that has been created in the UI.
+    """Set up the Public Transport Victoria component."""
     hass.data.setdefault(DOMAIN, {})
 
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up MyDlink from a config entry."""
+    """Set up Public Transport Victoria from a config entry."""
     connector = Connector(hass,
                           entry.data[CONF_ID],
                           entry.data[CONF_API_KEY],

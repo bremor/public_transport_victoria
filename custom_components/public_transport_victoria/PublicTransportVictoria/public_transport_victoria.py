@@ -20,7 +20,7 @@ STOPS_PATH = "/v3/stops/route/{}/route_type/{}"
 _LOGGER = logging.getLogger(__name__)
 
 class Connector:
-    """mydlink cloud connector."""
+    """Public Transport Victoria connector."""
 
     manufacturer = "Demonstration Corp"
 
@@ -48,7 +48,7 @@ class Connector:
         await self.async_update()
 
     async def async_route_types(self):
-        """Test credentials for Public Transport Victoria API."""
+        """Get route types from Public Transport Victoria API."""
         url = build_URL(self.id, self.api_key, ROUTE_TYPES_PATH)
 
         async with aiohttp.ClientSession() as session:
@@ -63,7 +63,7 @@ class Connector:
             return route_types
 
     async def async_routes(self, route_type):
-        """Test credentials for Public Transport Victoria API."""
+        """Get routes from Public Transport Victoria API."""
         url = build_URL(self.id, self.api_key, ROUTES_PATH.format(route_type))
 
         async with aiohttp.ClientSession() as session:
@@ -80,7 +80,7 @@ class Connector:
             return routes
 
     async def async_directions(self, route):
-        """Test credentials for Public Transport Victoria API."""
+        """Get directions from Public Transport Victoria API."""
         url = build_URL(self.id, self.api_key, DIRECTIONS_PATH.format(route))
 
         async with aiohttp.ClientSession() as session:
@@ -97,7 +97,7 @@ class Connector:
             return directions
 
     async def async_stops(self, route):
-        """Test credentials for Public Transport Victoria API."""
+        """Get stops from Public Transport Victoria API."""
         url = build_URL(self.id, self.api_key, STOPS_PATH.format(route, self.route_type))
 
         async with aiohttp.ClientSession() as session:

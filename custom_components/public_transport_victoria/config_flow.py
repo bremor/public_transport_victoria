@@ -26,8 +26,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input=None):
         """Handle the initial step."""
         data_schema = vol.Schema({
-            vol.Required(CONF_ID, default="3000906"): str,
-            vol.Required(CONF_API_KEY, default="542fbf84-930b-467c-844d-21d74f15c38a"): str,
+            vol.Required(CONF_ID): str,
+            vol.Required(CONF_API_KEY): str,
         })
 
         errors = {}
