@@ -72,9 +72,6 @@ automation:
     action:
       - service: 'homeassistant.update_entity'
         data:
-          message: 'Fixed max'
-      - service: 'python_script.set_state'
-        data:
           entity_id:
             - 'sensor.werribee_line_to_city_flinders_street_from_aircraft_station_0'
             - 'sensor.werribee_line_to_city_flinders_street_from_aircraft_station_1'
