@@ -54,7 +54,7 @@ Please follow the instructions on http://ptv.vic.gov.au/ptv-timetable-api/ for o
 ```
 automation:
 
-  - alias: 'bom_melbourne_max_temp_c'
+  - alias: 'update_trains'
     initial_state: true
     trigger:
       trigger:
