@@ -56,6 +56,7 @@ class Connector:
 
         if response is not None and response.status == 200:
             response = await response.json()
+            _LOGGER.debug(response)
             route_types = {}
             for r in response["route_types"]:
                 route_types[r["route_type"]] = r["route_type_name"]
@@ -71,6 +72,7 @@ class Connector:
 
         if response is not None and response.status == 200:
             response = await response.json()
+            _LOGGER.debug(response)
             routes = {}
             for r in response["routes"]:
                 routes[r["route_id"]] = r["route_name"]
@@ -88,6 +90,7 @@ class Connector:
 
         if response is not None and response.status == 200:
             response = await response.json()
+            _LOGGER.debug(response)
             directions = {}
             for r in response["directions"]:
                 directions[r["direction_id"]] = r["direction_name"]
@@ -105,6 +108,7 @@ class Connector:
 
         if response is not None and response.status == 200:
             response = await response.json()
+            _LOGGER.debug(response)
             stops = {}
             for r in response["stops"]:
                 stops[r["stop_id"]] = r["stop_name"]
@@ -123,6 +127,7 @@ class Connector:
 
         if response is not None and response.status == 200:
             response = await response.json()
+            _LOGGER.debug(response)
             self.departures = []
             for r in response["departures"]:
                 if r["estimated_departure_utc"] is not None:
@@ -139,7 +144,9 @@ def build_URL(id, api_key, request):
     raw = request + 'devid={}'.format(id)
     hashed = hmac.new(api_key.encode('utf-8'), raw.encode('utf-8'), sha1)
     signature = hashed.hexdigest()
-    return BASE_URL + raw + '&signature={}'.format(signature)
+    url = BASE_URL + raw + '&signature={}'.format(signature)
+    _LOGGER.debug(url)
+    return url
 
 def convert_utc_to_local(utc):
     d = datetime.datetime.strptime(utc, '%Y-%m-%dT%H:%M:%SZ')
