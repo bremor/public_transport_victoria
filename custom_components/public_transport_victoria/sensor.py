@@ -3,7 +3,10 @@ import datetime
 import logging
 
 from homeassistant.helpers.entity import Entity
-from .const import DOMAIN
+from .const import (
+    ATTRIBUTION, DOMAIN,
+)
+from homeassistant.const import ATTR_ATTRIBUTION
 
 _LOGGER = logging.getLogger(__name__)
 SCAN_INTERVAL = datetime.timedelta(minutes=10)
@@ -56,9 +59,11 @@ class Sensor(Entity):
         )
 
     @property
-    def device_state_attributes(self):
-        """Return the state attributes of the device."""
-        return self._connector.departures[self._number]
+    def extra_state_attributes(self):
+        """Return the state attributes of the sensor."""
+        attr = self._connector.departures[self._number]
+        attr[ATTR_ATTRIBUTION] = ATTRIBUTION
+        return attr
 
     async def async_update(self):
         """Return the state attributes of the device."""
