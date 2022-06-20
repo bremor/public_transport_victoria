@@ -57,7 +57,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_route_types(self, user_input=None):
         """Handle the route types step."""
         data_schema = vol.Schema({
-            vol.Required(CONF_ROUTE_TYPE, default="0"): vol.In(self.route_types),
+            vol.Required(CONF_ROUTE_TYPE, default=0): vol.In(self.route_types),
         })
 
         errors = {}
