@@ -6,6 +6,7 @@ import hmac
 import logging
 from hashlib import sha1
 
+
 from homeassistant.util import Throttle
 
 BASE_URL = "https://timetableapi.ptv.vic.gov.au"
@@ -149,6 +150,7 @@ class Connector:
             self.departures = []
             for r in response["departures"]:
                 r['stops_at_destinaton']=await self.async_stopping_patterns(r['run_ref'],self.destination_stop)
+                r['last_refreshed_at']=datetime.datetime.now()
                 if r["estimated_departure_utc"] is not None:
                     r["departure"] = convert_utc_to_local(r["estimated_departure_utc"])
                 else:
