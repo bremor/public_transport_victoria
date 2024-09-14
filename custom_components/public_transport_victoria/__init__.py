@@ -7,7 +7,8 @@ from homeassistant.core import HomeAssistant
 
 from .const import (
     CONF_DIRECTION, CONF_DIRECTION_NAME, CONF_ROUTE, CONF_ROUTE_NAME,
-    CONF_ROUTE_TYPE, CONF_ROUTE_TYPE_NAME, CONF_STOP, CONF_STOP_NAME, DOMAIN
+    CONF_ROUTE_TYPE, CONF_ROUTE_TYPE_NAME, CONF_STOP, CONF_STOP_NAME, 
+    CONF_DESTINATION_STOP,CONF_DESTINATION_STOP_NAME,DOMAIN
 )
 from .PublicTransportVictoria.public_transport_victoria import Connector
 
@@ -30,10 +31,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                           entry.data[CONF_ROUTE],
                           entry.data[CONF_DIRECTION],
                           entry.data[CONF_STOP],
+                          entry.data[CONF_DESTINATION_STOP],
                           entry.data[CONF_ROUTE_TYPE_NAME],
                           entry.data[CONF_ROUTE_NAME],
                           entry.data[CONF_DIRECTION_NAME],
                           entry.data[CONF_STOP_NAME],
+                          entry.data[CONF_DESTINATION_STOP_NAME],
     )
     await connector._init()
 

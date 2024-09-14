@@ -29,7 +29,8 @@
       "stops": {
         "title": "[%key:common::config_flow::title%]",
         "data": {
-          "stop": "[%key:common::config_flow::data::stop%]"
+          "stop": "[%key:common::config_flow::data::stop%]",
+          "destination_stop": "[%key:common::config_flow::data::destination_stop%]"
         }
       }
     },

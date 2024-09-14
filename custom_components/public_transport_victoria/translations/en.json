@@ -34,9 +34,10 @@
                 }
             },
             "stops": {
-                "title": "Select your stop",
+                "title": "Select your origin and destination stop",
                 "data": {
-                    "stop": "Select stop"
+                    "stop": "Select origin stop",
+                    "destination_stop": "Select destination stop"
                 }
             }
         }
