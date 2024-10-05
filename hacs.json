@@ -1,5 +1,4 @@
 {
   "name": "Public Transport Victoria",
-  "render_readme": "true",
-  "iot_class": "Cloud Polling"
+  "country": "AU"
 }
