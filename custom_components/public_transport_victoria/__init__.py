@@ -1,5 +1,7 @@
 """Public Transport Victoria integration."""
 import asyncio
+import logging
+
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_API_KEY, CONF_ID
@@ -10,6 +12,11 @@ from .const import (
     CONF_ROUTE_TYPE, CONF_ROUTE_TYPE_NAME, CONF_STOP, CONF_STOP_NAME, DOMAIN
 )
 from .PublicTransportVictoria.public_transport_victoria import Connector
+
+
+# Define the logger
+_LOGGER = logging.getLogger(__name__)
+
 
 PLATFORMS = ["sensor"]
 
@@ -23,28 +30,26 @@ async def async_setup(hass: HomeAssistant, config: dict):
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Public Transport Victoria from a config entry."""
-    connector = Connector(hass,
-                          entry.data[CONF_ID],
-                          entry.data[CONF_API_KEY],
-                          entry.data[CONF_ROUTE_TYPE],
-                          entry.data[CONF_ROUTE],
-                          entry.data[CONF_DIRECTION],
-                          entry.data[CONF_STOP],
-                          entry.data[CONF_ROUTE_TYPE_NAME],
-                          entry.data[CONF_ROUTE_NAME],
-                          entry.data[CONF_DIRECTION_NAME],
-                          entry.data[CONF_STOP_NAME],
+    connector = Connector(
+        hass,
+        entry.data[CONF_ID],
+        entry.data[CONF_API_KEY],
+        entry.data[CONF_ROUTE_TYPE],
+        entry.data[CONF_ROUTE],
+        entry.data[CONF_DIRECTION],
+        entry.data[CONF_STOP],
+        entry.data[CONF_ROUTE_TYPE_NAME],
+        entry.data[CONF_ROUTE_NAME],
+        entry.data[CONF_DIRECTION_NAME],
+        entry.data[CONF_STOP_NAME],
     )
     await connector._init()
 
     hass.data[DOMAIN][entry.entry_id] = connector
 
-    # This creates each HA object for each platform your device requires.
-    # It's done by calling the `async_setup_entry` function in each platform module.
-    for component in PLATFORMS:
-        hass.async_create_task(
-            hass.config_entries.async_forward_entry_setup(entry, component)
-        )
+    # Use the new async_forward_entry_setups method
+
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
 
