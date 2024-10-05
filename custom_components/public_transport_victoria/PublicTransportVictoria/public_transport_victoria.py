@@ -7,6 +7,8 @@ import logging
 from hashlib import sha1
 
 from homeassistant.util import Throttle
+from homeassistant.util.dt import get_time_zone
+
 
 BASE_URL = "https://timetableapi.ptv.vic.gov.au"
 DEPARTURES_PATH = "/v3/departures/route_type/{}/stop/{}/route/{}?direction_id={}&max_results={}"
@@ -131,9 +133,13 @@ class Connector:
             self.departures = []
             for r in response["departures"]:
                 if r["estimated_departure_utc"] is not None:
-                    r["departure"] = convert_utc_to_local(r["estimated_departure_utc"])
+                    r["departure"] = convert_utc_to_local(
+                        r["estimated_departure_utc"], self.hass
+                        )                
                 else:
-                    r["departure"] = convert_utc_to_local(r["scheduled_departure_utc"])
+                    r["departure"] = convert_utc_to_local(
+                        r["scheduled_departure_utc"], self.hass
+                        )
                 self.departures.append(r)
 
         for departure in self.departures:
@@ -148,8 +154,11 @@ def build_URL(id, api_key, request):
     _LOGGER.debug(url)
     return url
 
-def convert_utc_to_local(utc):
-    d = datetime.datetime.strptime(utc, '%Y-%m-%dT%H:%M:%SZ')
-    d = d.replace(tzinfo=datetime.timezone.utc)
-    d = d.astimezone()
-    return d.strftime('%I:%M %p')
+def convert_utc_to_local(utc, hass):
+    """Convert UTC to Home Assistant local time."""
+    d = datetime.datetime.strptime(utc, "%Y-%m-%dT%H:%M:%SZ")
+    # Get the Home Assistant configured time zone
+    local_tz = get_time_zone(hass.config.time_zone)
+    # Convert the time to the Home Assistant time zone
+    d = d.replace(tzinfo=datetime.timezone.utc).astimezone(local_tz)
+    return d.strftime("%I:%M %p")
