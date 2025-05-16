@@ -140,10 +140,32 @@ class Connector:
                     r["departure"] = convert_utc_to_local(
                         r["scheduled_departure_utc"], self.hass
                         )
+
+                # Get run information to determine if it's express
+                run_info = await self.async_run(r["run_id"])
+                if run_info:
+                    r["is_express"] = run_info.get("express_stop_count", 0) > 0
+                else:
+                    r["is_express"] = None
+
                 self.departures.append(r)
 
         for departure in self.departures:
             _LOGGER.debug(departure)
+
+    async def async_run(self, run_id):
+        """Get run information from Public Transport Victoria API."""
+        url = build_URL(self.id, self.api_key, f"/v3/runs/{run_id}")
+
+        async with aiohttp.ClientSession() as session:
+            response = await session.get(url)
+
+        if response is not None and response.status == 200:
+            response = await response.json()
+            _LOGGER.debug(response)
+            if response.get("runs") and len(response["runs"]) > 0:
+                return response["runs"][0]
+        return None
 
 def build_URL(id, api_key, request):
     request = request + ('&' if ('?' in request) else '?')
