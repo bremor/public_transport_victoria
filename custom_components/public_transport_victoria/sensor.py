@@ -1,82 +1,73 @@
 """Platform for sensor integration."""
+from __future__ import annotations
 
-import datetime
+import re
 import logging
+from typing import Any
 
-from homeassistant.helpers.entity import Entity
-from homeassistant.helpers.update_coordinator import (
-    DataUpdateCoordinator,
-    CoordinatorEntity,
-)
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ATTRIBUTION
-from .const import ATTRIBUTION, DOMAIN, DEFAULT_DETAILS_LIMIT
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
+from .const import (
+    ATTRIBUTION,
+    DEFAULT_DETAILS_LIMIT,
+    DEFAULT_ICON,
+    DOMAIN,
+    ROUTE_TYPE_ICONS,
+    get_device_info,
+)
+from .coordinator import PublicTransportVictoriaCoordinator
 
 _LOGGER = logging.getLogger(__name__)
-SCAN_INTERVAL = datetime.timedelta(minutes=1)
 
-async def async_setup_entry(hass, config_entry, async_add_entities):
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
     """Add sensors for passed config_entry in HA."""
     entry_data = hass.data[DOMAIN][config_entry.entry_id]
-    connector = entry_data["connector"]
+    coordinator: PublicTransportVictoriaCoordinator = entry_data["coordinator"]
 
-    details_limit = DEFAULT_DETAILS_LIMIT
-
-    # Create the coordinator to manage polling
-    if "coordinator" not in entry_data:
-        entry_data["coordinator"] = PublicTransportVictoriaGlobalCoordinator(hass, connector)
-    coordinator = entry_data["coordinator"]
-
-    await coordinator.async_config_entry_first_refresh()
-
-    # Create sensors for the first 5 departures
-    new_devices = [PublicTransportVictoriaSensor(coordinator, i) for i in range(5)]
-
-    # Create current disruptions sensors
-    new_devices.append(PublicTransportVictoriaDisruptionsDetailSensor(coordinator, details_limit=details_limit))
-
-    async_add_entities(new_devices)
-
-class PublicTransportVictoriaGlobalCoordinator(DataUpdateCoordinator):
-    """Class to manage fetching Public Transport Victoria data."""
-
-    def __init__(self, hass, connector):
-        """Initialize the coordinator."""
-        self.connector = connector
-        super().__init__(
-            hass,
-            _LOGGER,
-            name="Public Transport Victoria (Global)",
-            update_interval=datetime.timedelta(minutes=1),
+    entities: list[CoordinatorEntity] = [
+        PublicTransportVictoriaSensor(coordinator, i) for i in range(5)
+    ]
+    entities.append(
+        PublicTransportVictoriaDisruptionsDetailSensor(
+            coordinator, details_limit=DEFAULT_DETAILS_LIMIT
         )
+    )
+    async_add_entities(entities)
 
-    async def _async_update_data(self):
-        """Fetch all data from Public Transport Victoria."""
-        _LOGGER.debug("Fetching all data from Public Transport Victoria API.")
-        await self.connector.async_update_all()
-        return {
-            "departures": self.connector.departures,
-            "disruptions_current": self.connector.disruptions_current,
-        }
 
-class PublicTransportVictoriaSensor(CoordinatorEntity, Entity):
+class PublicTransportVictoriaSensor(CoordinatorEntity[PublicTransportVictoriaCoordinator]):
     """Sensor for a single departure."""
 
-    def __init__(self, coordinator: DataUpdateCoordinator, number: int):
+    def __init__(
+        self,
+        coordinator: PublicTransportVictoriaCoordinator,
+        number: int,
+    ) -> None:
+        """Initialize the departure sensor."""
         super().__init__(coordinator)
         self._number = number
-        self._connector = coordinator.connector
-        self._attr_name = f"{self._connector.route_name} line {self._connector.stop_name} to {self._connector.direction_name} {self._number}"
-        self._attr_unique_id = f"{self._connector.route}-{self._connector.direction}-{self._connector.stop}-dep-{self._number}"
-        self._attr_device_info = {
-            # "identifiers": {(DOMAIN, str(self._connector.route))},
-            "identifiers": {(DOMAIN, f"{self._connector.route}-{self._connector.direction}-{self._connector.stop}")},
-            "name": f"{self._connector.route_name} line {self._connector.stop_name} to {self._connector.direction_name}",
-            "manufacturer": "Public Transport Victoria",
-            "model": f"{self._connector.stop_name} to {self._connector.direction_name}",
-        }
+        connector = coordinator.connector
+        self._attr_name = (
+            f"{connector.route_name} line {connector.stop_name} "
+            f"to {connector.direction_name} {number}"
+        )
+        self._attr_unique_id = (
+            f"{connector.route}-{connector.direction}-{connector.stop}-dep-{number}"
+        )
+        self._attr_device_info = get_device_info(connector)
+        self._attr_icon = ROUTE_TYPE_ICONS.get(connector.route_type, DEFAULT_ICON)
 
     @property
-    def state(self):
+    def state(self) -> str:
         """Return the state of the sensor."""
         deps = (self.coordinator.data or {}).get("departures", [])
         if len(deps) > self._number:
@@ -84,47 +75,39 @@ class PublicTransportVictoriaSensor(CoordinatorEntity, Entity):
         return "No data"
 
     @property
-    def extra_state_attributes(self):
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return the state attributes of the sensor."""
         deps = (self.coordinator.data or {}).get("departures", [])
         if len(deps) > self._number:
-            attr = dict(deps[self._number])  # Copy to avoid mutating coordinator data
+            attr = dict(deps[self._number])
             attr[ATTR_ATTRIBUTION] = ATTRIBUTION
             return attr
         return {ATTR_ATTRIBUTION: ATTRIBUTION}
 
-    @property
-    def icon(self):
-        """Return the icon based on route type."""
-        rt = self._connector.route_type
-        if rt == 0:
-            return "mdi:train"
-        if rt == 1:
-            return "mdi:tram"
-        if rt == 2:
-            return "mdi:bus"
-        return "mdi:transit-connection"
 
-class PublicTransportVictoriaDisruptionsDetailSensor(CoordinatorEntity, Entity):
+class PublicTransportVictoriaDisruptionsDetailSensor(
+    CoordinatorEntity[PublicTransportVictoriaCoordinator],
+):
     """Sensor for details of current disruptions."""
 
-    def __init__(self, coordinator: DataUpdateCoordinator, details_limit: int):
+    def __init__(
+        self,
+        coordinator: PublicTransportVictoriaCoordinator,
+        details_limit: int,
+    ) -> None:
+        """Initialize the disruptions detail sensor."""
         super().__init__(coordinator)
-        self._connector = coordinator.connector
+        connector = coordinator.connector
         self._details_limit = details_limit
-        self._attr_name = f"Disruption {self._connector.stop_name} to {self._connector.direction_name}"
-        self._attr_unique_id = f"{self._connector.route}-{self._connector.direction}-{self._connector.stop}-disruptions-detail"
-        self._attr_device_info = {
-            # "identifiers": {(DOMAIN, str(self._connector.route))},
-            "identifiers": {(DOMAIN, f"{self._connector.route}-{self._connector.direction}-{self._connector.stop}")},
-            "name": f"{self._connector.route_name} line {self._connector.stop_name} to {self._connector.direction_name}",
-            "manufacturer": "Public Transport Victoria",
-            "model": f"{self._connector.stop_name} to {self._connector.direction_name}",
-        }
+        self._attr_name = f"Disruption {connector.stop_name} to {connector.direction_name}"
+        self._attr_unique_id = (
+            f"{connector.route}-{connector.direction}-{connector.stop}-disruptions-detail"
+        )
+        self._attr_device_info = get_device_info(connector)
         self._attr_icon = "mdi:note-text"
 
     @property
-    def state(self):
+    def state(self) -> str:
         """Return a brief state: first disruption title, else 'No disruptions'."""
         try:
             data = self.coordinator.data or {}
@@ -135,10 +118,12 @@ class PublicTransportVictoriaDisruptionsDetailSensor(CoordinatorEntity, Entity):
                 rel = dis[0].get("period_relative")
                 result = title
                 if rel:
-                    import re
                     date_range_pattern = r'from\s+\w+.*?\s+(?:to|until)\s+\w+.*?(?:\s|$)'
-                    if (rel.startswith("from ") and " until " in rel and
-                            re.search(date_range_pattern, raw_title, re.IGNORECASE)):
+                    if (
+                        rel.startswith("from ")
+                        and " until " in rel
+                        and re.search(date_range_pattern, raw_title, re.IGNORECASE)
+                    ):
                         if " until " in title:
                             title = title.split(" until ", 1)[0]
                         elif " to " in title:
@@ -160,15 +145,14 @@ class PublicTransportVictoriaDisruptionsDetailSensor(CoordinatorEntity, Entity):
             return "Error"
 
     @property
-    def extra_state_attributes(self):
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return detailed disruption attributes."""
         data = self.coordinator.data or {}
         dis = data.get("disruptions_current") or []
         disruptions = dis[: self._details_limit]
-        attr = {
+        return {
             ATTR_ATTRIBUTION: ATTRIBUTION,
             "disruptions": disruptions,
             "total_disruptions": len(dis),
             "period_relative": disruptions[0].get("period_relative") if disruptions else None,
         }
-        return attr

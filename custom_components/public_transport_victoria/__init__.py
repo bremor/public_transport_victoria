@@ -1,31 +1,29 @@
 """Public Transport Victoria integration."""
-import asyncio
+from __future__ import annotations
+
 import logging
 
-
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_API_KEY, CONF_ID
+from homeassistant.const import CONF_API_KEY, CONF_ID, Platform
 from homeassistant.core import HomeAssistant
 
 from .const import (
-    CONF_DIRECTION, CONF_DIRECTION_NAME, CONF_ROUTE, CONF_ROUTE_NAME,
-    CONF_ROUTE_TYPE, CONF_ROUTE_TYPE_NAME, CONF_STOP, CONF_STOP_NAME, DOMAIN
+    CONF_DIRECTION,
+    CONF_DIRECTION_NAME,
+    CONF_ROUTE,
+    CONF_ROUTE_NAME,
+    CONF_ROUTE_TYPE,
+    CONF_ROUTE_TYPE_NAME,
+    CONF_STOP,
+    CONF_STOP_NAME,
+    DOMAIN,
 )
+from .coordinator import PublicTransportVictoriaCoordinator
 from .PublicTransportVictoria.public_transport_victoria import Connector
 
-
-# Define the logger
 _LOGGER = logging.getLogger(__name__)
 
-
-PLATFORMS = ["sensor", "binary_sensor"]
-
-
-async def async_setup(hass: HomeAssistant, config: dict):
-    """Set up the Public Transport Victoria component."""
-    hass.data.setdefault(DOMAIN, {})
-
-    return True
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -45,26 +43,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     await connector._init()
 
-    hass.data[DOMAIN][entry.entry_id] = {"connector": connector}
+    coordinator = PublicTransportVictoriaCoordinator(hass, connector)
+    await coordinator.async_config_entry_first_refresh()
 
-    # Use the new async_forward_entry_setups method
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN][entry.entry_id] = {
+        "connector": connector,
+        "coordinator": coordinator,
+    }
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    unload_ok = all(
-        await asyncio.gather(
-            *[
-                hass.config_entries.async_forward_entry_unload(entry, component)
-                for component in PLATFORMS
-            ]
-        )
-    )
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
-
     return unload_ok
