@@ -6,6 +6,6 @@
   "issue_tracker": "https://github.com/bremor/public_transport_victoria/issues",
   "requirements": [],
   "dependencies": [],
-  "version": "0.3.3",
+  "version": "0.7",
   "codeowners": ["@bremor", "@catatonicChimp"]
 }
