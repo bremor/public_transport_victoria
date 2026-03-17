@@ -5,6 +5,7 @@
         },
         "error": {
             "cannot_connect": "Unable to connect",
+            "invalid_auth": "Invalid Developer ID or Key",
             "unknown": "Unknown error"
         },
         "step": {

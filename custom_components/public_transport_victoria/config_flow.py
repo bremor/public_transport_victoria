@@ -73,7 +73,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self.route_types = await self.connector.async_route_types()
 
                 if not self.route_types:
-                    raise CannotConnect
+                    raise InvalidAuth
 
                 # Store the API key and ID in self.data for use in subsequent steps
                 self.data[CONF_ID] = user_input[CONF_ID]
@@ -82,6 +82,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                 return await self.async_step_route_types()
 
+            except InvalidAuth:
+                _LOGGER.error("Invalid credentials for Public Transport Victoria API.")
+                errors["base"] = "invalid_auth"
             except CannotConnect:
                 _LOGGER.error("Cannot connect to Public Transport Victoria API.")
                 errors["base"] = "cannot_connect"
@@ -97,7 +100,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_route_types(self, user_input=None):
         """Handle the route types step."""
         data_schema = vol.Schema({
-            vol.Required(CONF_ROUTE_TYPE, default=0): vol.In(self.route_types),
+            vol.Required(CONF_ROUTE_TYPE, default=next(iter(self.route_types))): vol.In(self.route_types),
         })
 
         errors = {}
@@ -161,11 +164,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
         if user_input is not None:
             try:
+                self.data[CONF_DIRECTION] = user_input[CONF_DIRECTION]
                 self.stops = await self.connector.async_stops(
-                    self.data[CONF_ROUTE]
+                    self.data[CONF_ROUTE], user_input[CONF_DIRECTION]
                 )
 
-                self.data[CONF_DIRECTION] = user_input[CONF_DIRECTION]
+
                 self.data[CONF_DIRECTION_NAME] = self.directions[user_input[CONF_DIRECTION]]
 
                 return await self.async_step_stops()
@@ -214,3 +218,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 class CannotConnect(exceptions.HomeAssistantError):
     """Error to indicate we cannot connect."""
+
+class InvalidAuth(exceptions.HomeAssistantError):
+    """Error to indicate invalid credentials."""
