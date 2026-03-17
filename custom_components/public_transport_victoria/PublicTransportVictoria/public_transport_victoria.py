@@ -69,19 +69,50 @@ class Connector:
         """Get routes from Public Transport Victoria API."""
         url = build_URL(self.id, self.api_key, ROUTES_PATH.format(route_type))
 
-        async with aiohttp.ClientSession() as session:
-            response = await session.get(url)
-
-        if response is not None and response.status == 200:
-            response = await response.json()
-            _LOGGER.debug(response)
-            routes = {}
-            for r in response["routes"]:
-                routes[r["route_id"]] = r["route_name"]
-
-            self.route_type = route_type
-
-            return routes
+        timeout = aiohttp.ClientTimeout(
+            total=60,
+            connect=30,
+            sock_read=60,
+            sock_connect=30
+        )
+        
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            headers = {
+                'Accept-Encoding': 'gzip, deflate',
+                'Connection': 'keep-alive'
+            }
+            async with session.get(url, headers=headers) as response:
+                if response is not None and response.status == 200:
+                    response = await response.json()
+                    
+                    route_list = []
+                    for r in response["routes"]:
+                        route_number = r.get("route_number", "")
+                        try:
+                            sort_key = int(route_number) if route_number else float('inf')
+                        except ValueError:
+                            sort_key = (1, route_number)
+                            
+                        route_list.append((
+                            r["route_id"],
+                            sort_key,
+                            f"{route_number} - {r['route_name']}" if route_number else r["route_name"]
+                        ))
+                    
+                    def sort_key(x):
+                        sort_val = x[1]
+                        if isinstance(sort_val, tuple):
+                            return sort_val
+                        return (0, sort_val)
+                    
+                    route_list.sort(key=sort_key)
+                    
+                    routes = {route_id: display_name for route_id, _, display_name in route_list}
+                    
+                    self.route_type = route_type
+                    return routes
+                else:
+                    return {}
 
     async def async_directions(self, route):
         """Get directions from Public Transport Victoria API."""
