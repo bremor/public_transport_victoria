@@ -61,7 +61,7 @@ class Connector:
             _LOGGER.debug(response)
             route_types = {}
             for r in response["route_types"]:
-                route_types[r["route_type"]] = r["route_type_name"]
+                route_types[str(r["route_type"])] = r["route_type_name"]
 
             return route_types
 
@@ -107,7 +107,7 @@ class Connector:
                     
                     route_list.sort(key=sort_key)
                     
-                    routes = {route_id: display_name for route_id, _, display_name in route_list}
+                    routes = {str(route_id): display_name for route_id, _, display_name in route_list}
                     
                     self.route_type = route_type
                     return routes
@@ -126,7 +126,7 @@ class Connector:
             _LOGGER.debug(response)
             directions = {}
             for r in response["directions"]:
-                directions[r["direction_id"]] = r["direction_name"]
+                directions[str(r["direction_id"])] = r["direction_name"]
 
             self.route = route
 
@@ -144,7 +144,7 @@ class Connector:
             _LOGGER.debug(response)
             stops = {}
             for r in response["stops"]:
-                stops[r["stop_id"]] = r["stop_name"]
+                stops[str(r["stop_id"])] = r["stop_name"]
 
             self.route = route
 
@@ -161,24 +161,23 @@ class Connector:
         if response is not None and response.status == 200:
             response = await response.json()
             _LOGGER.debug(response)
+            departures = response["departures"]
+
+            run_infos = await asyncio.gather(
+                *[self.async_run(r["run_id"]) for r in departures]
+            )
+
             self.departures = []
-            for r in response["departures"]:
+            for r, run_info in zip(departures, run_infos):
                 if r["estimated_departure_utc"] is not None:
                     r["departure"] = convert_utc_to_local(
                         r["estimated_departure_utc"], self.hass
-                        )                
+                        )
                 else:
                     r["departure"] = convert_utc_to_local(
                         r["scheduled_departure_utc"], self.hass
                         )
-
-                # Get run information to determine if it's express
-                run_info = await self.async_run(r["run_id"])
-                if run_info:
-                    r["is_express"] = run_info.get("express_stop_count", 0) > 0
-                else:
-                    r["is_express"] = None
-
+                r["is_express"] = run_info.get("express_stop_count", 0) > 0 if run_info else False
                 self.departures.append(r)
 
         for departure in self.departures:
