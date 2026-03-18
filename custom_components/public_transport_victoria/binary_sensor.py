@@ -65,12 +65,15 @@ class DepartureExpressBinarySensor(PtvDepartureEntity, BinarySensorEntity):
         return bool(dep.get("is_express"))
 
 
-class RouteDisruptedBinarySensor(PtvEntity, BinarySensorEntity):
-    """On when any current departure on this route has active disruptions.
+_SEVERITY_ORDER = {"severe": 3, "moderate": 2, "minor": 1}
 
-    This is a device-level sensor — one per configured route/stop entry.
-    Will be enhanced to resolve disruption IDs to titles/descriptions in a
-    follow-up (see backlog: 'Resolve disruption IDs').
+
+class RouteDisruptedBinarySensor(PtvEntity, BinarySensorEntity):
+    """On when there are active disruptions on this route.
+
+    Device-level sensor — one per configured route/stop entry.
+    Disruption details (title, description, type, severity, url) are resolved
+    from the PTV disruptions API and exposed as attributes.
     """
 
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
@@ -86,19 +89,34 @@ class RouteDisruptedBinarySensor(PtvEntity, BinarySensorEntity):
 
     @property
     def is_on(self) -> bool:
-        data = self.coordinator.data
-        if not data:
-            return False
-        return any(dep.get("disruption_ids") for dep in data)
+        return bool(self._connector.disruptions)
 
     @property
     def extra_state_attributes(self) -> dict:
-        data = self.coordinator.data
-        if not data:
+        disruptions = self._connector.disruptions
+        if not disruptions:
             return {}
-        # Collect the unique disruption IDs across all current departures
-        ids = set()
-        for dep in data:
-            for d_id in (dep.get("disruption_ids") or []):
-                ids.add(d_id)
-        return {"disruption_ids": sorted(ids)} if ids else {}
+
+        # Determine the worst severity across all active disruptions
+        worst = max(
+            (_SEVERITY_ORDER.get(d.get("severity", "minor"), 1) for d in disruptions),
+            default=0,
+        )
+        severity_label = {3: "severe", 2: "moderate", 1: "minor"}.get(worst, "none")
+
+        return {
+            "disruption_count": len(disruptions),
+            "most_severe": severity_label,
+            "disruptions": [
+                {
+                    "title": d.get("title", ""),
+                    "description": d.get("description", ""),
+                    "type": d.get("disruption_type", ""),
+                    "severity": d.get("severity", ""),
+                    "url": d.get("url", ""),
+                    "from": d.get("from_date"),
+                    "to": d.get("to_date"),
+                }
+                for d in disruptions
+            ],
+        }
