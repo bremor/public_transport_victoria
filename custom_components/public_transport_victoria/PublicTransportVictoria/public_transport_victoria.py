@@ -423,13 +423,13 @@ class Connector:
             attrs["zone"] = zone
         if is_free is not None:
             attrs["is_free_fare_zone"] = is_free
-        for tick_key, tick_attr in [
-            ("open_24_hours",    "open_24_hours"),
-            ("vline_reservation","vline_reservation"),
-        ]:
-            val = tick.get(tick_key)
+        if tick.get("open_24_hours") is not None:
+            attrs["open_24_hours"] = tick["open_24_hours"]
+        # V/Line reservation info only applies to regional train/coach stops (route_type 3 or 5)
+        if int(self.route_type) in (3, 5):
+            val = tick.get("vline_reservation")
             if val is not None:
-                attrs[tick_attr] = val
+                attrs["vline_reservation"] = val
 
         # Routes serving this stop (returned in the stop object)
         routes_raw = stop.get("routes", [])
