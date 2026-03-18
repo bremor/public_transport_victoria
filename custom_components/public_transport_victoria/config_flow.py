@@ -3,21 +3,25 @@ import logging
 
 import voluptuous as vol
 
-from homeassistant import config_entries, exceptions
+from homeassistant import config_entries
 from homeassistant.const import CONF_API_KEY, CONF_ID
 
 from .const import (
-    CONF_DIRECTION, 
-    CONF_DIRECTION_NAME, 
-    CONF_ROUTE, 
+    CONF_DIRECTION,
+    CONF_DIRECTION_NAME,
+    CONF_ROUTE,
     CONF_ROUTE_NAME,
-    CONF_ROUTE_TYPE, 
-    CONF_ROUTE_TYPE_NAME, 
-    CONF_STOP, 
-    CONF_STOP_NAME, 
+    CONF_ROUTE_TYPE,
+    CONF_ROUTE_TYPE_NAME,
+    CONF_STOP,
+    CONF_STOP_NAME,
     DOMAIN
 )
-from .PublicTransportVictoria.public_transport_victoria import Connector
+from .PublicTransportVictoria.public_transport_victoria import (
+    CannotConnect,
+    Connector,
+    InvalidAuth,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -76,9 +80,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     self.hass, user_input[CONF_ID], user_input[CONF_API_KEY]
                 )
                 self.route_types = await self.connector.async_route_types()
-
-                if not self.route_types:
-                    raise InvalidAuth
 
                 # Store the API key and ID in self.data for use in subsequent steps
                 self.data[CONF_ID] = user_input[CONF_ID]
@@ -297,10 +298,3 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="stop", data_schema=data_schema, errors=errors
         )
-
-
-class CannotConnect(exceptions.HomeAssistantError):
-    """Error to indicate we cannot connect."""
-
-class InvalidAuth(exceptions.HomeAssistantError):
-    """Error to indicate invalid credentials."""
