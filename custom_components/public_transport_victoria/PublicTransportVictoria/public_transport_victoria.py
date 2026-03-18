@@ -311,6 +311,7 @@ class Connector:
                         r["is_realtime"] = r["estimated_departure_utc"] is not None
                         r["departure"] = convert_utc_to_local(effective_utc, self.hass)
                         r["is_express"] = run_info.get("express_stop_count", 0) > 0 if run_info else False
+                        r["destination_name"] = run_info.get("destination_name", "") if run_info else ""
                         self.departures.append(r)
 
                     # Apply express-only filter when configured

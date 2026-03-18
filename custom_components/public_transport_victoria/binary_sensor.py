@@ -2,10 +2,9 @@
 import logging
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity
-from homeassistant.const import EntityCategory
 
 from .const import DOMAIN
-from .entity import DEPARTURE_NAMES, PtvDepartureEntity, PtvEntity
+from .entity import PtvEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -13,59 +12,7 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up binary sensors for a config entry."""
     coordinator = hass.data[DOMAIN][config_entry.entry_id]["coordinator"]
-
-    entities = []
-    for slot in range(5):
-        entities.append(DepartureRealtimeBinarySensor(coordinator, config_entry, slot))
-        entities.append(DepartureExpressBinarySensor(coordinator, config_entry, slot))
-
-    entities.append(RouteDisruptedBinarySensor(coordinator, config_entry))
-
-    async_add_entities(entities)
-
-
-class DepartureRealtimeBinarySensor(PtvDepartureEntity, BinarySensorEntity):
-    """On when the departure time shown is real-time (not just the timetable)."""
-
-    _attr_icon = "mdi:satellite-uplink"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    @property
-    def unique_id(self) -> str:
-        return f"{self._config_entry.entry_id}_realtime_{self._slot}"
-
-    @property
-    def name(self) -> str:
-        return f"{self._device_label} {DEPARTURE_NAMES[self._slot]} real-time"
-
-    @property
-    def is_on(self) -> bool | None:
-        dep = self._departure
-        if dep is None:
-            return None
-        return bool(dep.get("is_realtime"))
-
-
-class DepartureExpressBinarySensor(PtvDepartureEntity, BinarySensorEntity):
-    """On when the service skips stops (express run)."""
-
-    _attr_icon = "mdi:train-variant"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    @property
-    def unique_id(self) -> str:
-        return f"{self._config_entry.entry_id}_express_{self._slot}"
-
-    @property
-    def name(self) -> str:
-        return f"{self._device_label} {DEPARTURE_NAMES[self._slot]} express"
-
-    @property
-    def is_on(self) -> bool | None:
-        dep = self._departure
-        if dep is None:
-            return None
-        return bool(dep.get("is_express"))
+    async_add_entities([RouteDisruptedBinarySensor(coordinator, config_entry)])
 
 
 _SEVERITY_ORDER = {"severe": 3, "moderate": 2, "minor": 1}
@@ -75,8 +22,8 @@ class RouteDisruptedBinarySensor(PtvEntity, BinarySensorEntity):
     """On when there are active disruptions on this route.
 
     Device-level sensor — one per configured route/stop entry.
-    Disruption details (title, description, type, severity, url) are resolved
-    from the PTV disruptions API and exposed as attributes.
+    Disruption details are exposed as numbered flat attributes
+    (disruption_1_title, disruption_1_type, …).
     """
 
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
@@ -100,7 +47,6 @@ class RouteDisruptedBinarySensor(PtvEntity, BinarySensorEntity):
         if not disruptions:
             return {}
 
-        # Determine the worst severity across all active disruptions
         worst = max(
             (_SEVERITY_ORDER.get(d.get("severity", "minor"), 1) for d in disruptions),
             default=0,
@@ -112,8 +58,6 @@ class RouteDisruptedBinarySensor(PtvEntity, BinarySensorEntity):
             "most_severe": severity_label,
         }
 
-        # Flatten each disruption into numbered attributes so the HA UI
-        # shows them as simple key/value rows rather than a YAML blob.
         for i, d in enumerate(disruptions, start=1):
             prefix = f"disruption_{i}"
             attrs[f"{prefix}_title"] = d.get("title", "")
