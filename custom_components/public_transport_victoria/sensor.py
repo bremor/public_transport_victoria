@@ -95,7 +95,12 @@ class DepartureMinutesSensor(PtvDepartureEntity, SensorEntity):
 
 
 class DeparturePlatformSensor(PtvDepartureEntity, SensorEntity):
-    """Platform number for a departure."""
+    """Platform number for a departure.
+
+    Only Metro Train (route_type 0) and V/Line (route_type 3) have platforms.
+    For trams and buses this entity is disabled by default — the stop name
+    already encodes the boarding location for those modes.
+    """
 
     _attr_icon = "mdi:sign-direction"
 
@@ -106,6 +111,11 @@ class DeparturePlatformSensor(PtvDepartureEntity, SensorEntity):
     @property
     def name(self) -> str:
         return f"{self._connector.route_name} · {self._connector.stop_name} {DEPARTURE_NAMES[self._slot]} platform"
+
+    @property
+    def entity_registry_enabled_default(self) -> bool:
+        """Enable by default only for modes that have platforms (trains)."""
+        return self._connector.route_type in ("0", "3")
 
     @property
     def native_value(self) -> str | None:

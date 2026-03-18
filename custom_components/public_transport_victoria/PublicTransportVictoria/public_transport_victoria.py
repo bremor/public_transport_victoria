@@ -190,7 +190,7 @@ class Connector:
                     _LOGGER.debug(data)
                     stops = {
                         str(r["stop_id"]): r["stop_name"]
-                        for r in sorted(data["stops"], key=lambda s: s["stop_name"])
+                        for r in sorted(data["stops"], key=lambda s: s.get("stop_sequence", 0))
                     }
                     self.route = route
                     return stops
