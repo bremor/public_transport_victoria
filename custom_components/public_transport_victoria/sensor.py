@@ -89,13 +89,25 @@ class DepartureSensor(PtvDepartureEntity, SensorEntity):
         }
 
         # Vehicle descriptor — air con, low floor, vehicle type, operator
+        # Only include fields that actually have a value; None means the API
+        # doesn't provide that field for this vehicle/route type.
         vd = dep.get("vehicle_descriptor") or {}
         if vd:
-            attrs["vehicle_description"] = vd.get("description", "")
-            attrs["air_conditioned"] = vd.get("air_conditioned")
-            attrs["low_floor"] = vd.get("low_floor")
-            attrs["operator"] = vd.get("operator", "")
-            attrs["vehicle_id"] = vd.get("id", "")
+            for vd_key, vd_attr in [
+                ("description", "vehicle_description"),
+                ("operator",    "operator"),
+                ("id",          "vehicle_id"),
+            ]:
+                val = vd.get(vd_key)
+                if val:
+                    attrs[vd_attr] = val
+            for vd_key, vd_attr in [
+                ("air_conditioned", "air_conditioned"),
+                ("low_floor",       "low_floor"),
+            ]:
+                val = vd.get(vd_key)
+                if val is not None:
+                    attrs[vd_attr] = val
 
         # Vehicle position — GPS coordinates and bearing
         vp = dep.get("vehicle_position") or {}
@@ -161,7 +173,9 @@ class StopInfoSensor(PtvEntity, SensorEntity):
     def extra_state_attributes(self) -> dict:
         return self._stop_info_cache or {}
 
-    async def async_update(self) -> None:
-        """Fetch stop info on first call; coordinator handles subsequent updates."""
+    async def async_added_to_hass(self) -> None:
+        """Fetch stop info once when entity is registered; cache for the session."""
+        await super().async_added_to_hass()
         if self._stop_info_cache is None:
             self._stop_info_cache = await self._connector.async_stop_info()
+            self.async_write_ha_state()

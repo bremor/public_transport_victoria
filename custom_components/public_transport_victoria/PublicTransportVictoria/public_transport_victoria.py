@@ -1,4 +1,5 @@
 """Public Transport Victoria API connector."""
+import asyncio
 import aiohttp
 import datetime
 import hmac
@@ -27,13 +28,14 @@ DEPARTURES_STOP_PATH = "/v3/departures/route_type/{}/stop/{}?max_results={}"
 _DEPARTURES_EXPAND = "&expand=Run&expand=VehicleDescriptor&expand=VehiclePosition"
 DIRECTIONS_PATH = "/v3/directions/route/{}"
 DISRUPTIONS_PATH = "/v3/disruptions/route/{}"
+DISRUPTIONS_STOP_PATH = "/v3/disruptions/stop/{}"
 MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(minutes=2)
 MAX_RESULTS = 5
 ROUTE_TYPES_PATH = "/v3/route_types"
 ROUTES_PATH = "/v3/routes?route_types={}"
 SEARCH_PATH = "/v3/search/{}?include_outlets=false&include_addresses=false"
 STOP_DETAILS_PATH = "/v3/stops/{}/route_type/{}?stop_location=false&stop_amenities=false&stop_accessibility=false&stop_contact=false&stop_ticket=false&gtfs=false&stop_staffing=false&stop_disruptions=false"
-STOP_INFO_PATH = "/v3/stops/{}/route_type/{}?stop_location=true&stop_amenities=true&stop_accessibility=true&stop_ticket=true&stop_contact=false&stop_staffing=false&gtfs=false&stop_disruptions=false"
+STOP_INFO_PATH = "/v3/stops/{}/route_type/{}?stop_location=true&stop_amenities=true&stop_accessibility=true&stop_ticket=true&stop_contact=false&stop_staffing=true&gtfs=false&stop_disruptions=false"
 STOPS_PATH = "/v3/stops/route/{}/route_type/{}?direction_id={}"
 
 # Human-readable mode names for stop search results display
@@ -310,11 +312,28 @@ class Connector:
         vd_map   = {str(k): v for k, v in data.get("vehicle_descriptors", {}).items()}
         vp_map   = {str(k): v for k, v in data.get("vehicle_positions", {}).items()}
 
-        # Fetch disruptions concurrently while we process departure data
+        # Fetch route and stop disruptions concurrently.
+        # Route disruptions require a route_id; stop disruptions always available.
+        tasks = []
         if self.route:
-            self.disruptions = await self.async_disruptions(self.route)
-        else:
-            self.disruptions = []
+            tasks.append(self.async_disruptions(self.route))
+        if self.stop:
+            tasks.append(self.async_disruptions_stop(self.stop))
+
+        results = await asyncio.gather(*tasks)
+
+        route_disruptions = results[0] if self.route else []
+        stop_disruptions  = results[-1] if self.stop else []
+
+        # Merge and deduplicate by disruption_id
+        seen: set = set()
+        merged = []
+        for d in route_disruptions + stop_disruptions:
+            did = d.get("disruption_id")
+            if did not in seen:
+                seen.add(did)
+                merged.append(d)
+        self.disruptions = merged
 
         self.departures = []
         for r in departures:
@@ -368,16 +387,17 @@ class Connector:
             _LOGGER.warning("Failed to fetch stop info: %s", err)
             return {}
 
-        stop = data.get("stop", {})
-        loc  = stop.get("stop_location", {}) or {}
-        gps  = loc.get("gps", {}) or {}
-        amen = stop.get("stop_amenities", {}) or {}
-        acc  = stop.get("stop_accessibility", {}) or {}
-        tick = stop.get("stop_ticket", {}) or {}
+        stop  = data.get("stop", {})
+        loc   = stop.get("stop_location", {}) or {}
+        gps   = loc.get("gps", {}) or {}
+        amen  = stop.get("stop_amenities", {}) or {}
+        acc   = stop.get("stop_accessibility", {}) or {}
+        tick  = stop.get("stop_ticket", {}) or {}
+        staff = stop.get("stop_staffing", {}) or {}
 
         # Build zone label
         zone_raw = tick.get("zone", "")
-        is_free  = tick.get("is_free_fare_zone", False)
+        is_free  = tick.get("is_free_fare_zone")
         if is_free:
             zone = "Free Fare Zone"
         elif zone_raw:
@@ -386,12 +406,61 @@ class Connector:
             zone = None
 
         attrs: dict = {}
+
+        # Location
         if gps.get("latitude") is not None:
             attrs["latitude"]  = gps["latitude"]
             attrs["longitude"] = gps["longitude"]
+        suburb = stop.get("stop_suburb") or loc.get("stop_suburb")
+        if suburb:
+            attrs["suburb"] = suburb
+        # Landmark/cross-street — PTV puts it on stop_location or directly on stop
+        landmark = loc.get("stop_landmark") or stop.get("stop_landmark")
+        if landmark:
+            attrs["landmark"] = landmark
+
+        # Zone / ticketing — only include fields the API actually returns
         if zone:
             attrs["zone"] = zone
-        attrs["is_free_fare_zone"] = is_free
+        if is_free is not None:
+            attrs["is_free_fare_zone"] = is_free
+        for tick_key, tick_attr in [
+            ("open_24_hours",    "open_24_hours"),
+            ("vline_reservation","vline_reservation"),
+        ]:
+            val = tick.get(tick_key)
+            if val is not None:
+                attrs[tick_attr] = val
+
+        # Routes serving this stop (returned in the stop object)
+        routes_raw = stop.get("routes", [])
+        if routes_raw:
+            route_labels = []
+            for r in routes_raw:
+                num  = r.get("route_number", "")
+                name = r.get("route_name", "")
+                route_labels.append(f"{num} {name}".strip() if num else name)
+            attrs["routes"] = ", ".join(sorted(set(route_labels)))
+            attrs["route_count"] = len(set(route_labels))
+
+        # Staffing hours (Mon–Fri and Sat/Sun if the API returns them)
+        if staff:
+            for key, label in [
+                ("fri_am_from",   "staffed_fri_am_from"),
+                ("fri_am_to",     "staffed_fri_am_to"),
+                ("fri_pm_from",   "staffed_fri_pm_from"),
+                ("fri_pm_to",     "staffed_fri_pm_to"),
+                ("ph_from",       "staffed_ph_from"),
+                ("ph_to",         "staffed_ph_to"),
+                ("ph_additional", "staffed_ph_additional"),
+                ("sun_am_from",   "staffed_sun_am_from"),
+                ("sun_am_to",     "staffed_sun_am_to"),
+                ("sun_pm_from",   "staffed_sun_pm_from"),
+                ("sun_pm_to",     "staffed_sun_pm_to"),
+            ]:
+                val = staff.get(key)
+                if val is not None:
+                    attrs[label] = val
 
         # Amenities (Metro/V-Line stations; absent for tram stops)
         for key, label in [
@@ -406,6 +475,8 @@ class Connector:
             ("wifi",           "wifi"),
             ("cctv",           "cctv"),
             ("ticket_machine", "ticket_machine"),
+            ("locker_storage", "lockers"),
+            ("bike_storage",   "bike_storage"),
         ]:
             val = amen.get(key)
             if val is not None:
@@ -413,12 +484,15 @@ class Connector:
 
         # Accessibility
         for key, label in [
-            ("wheelchair_accessible",  "wheelchair_accessible"),
-            ("lift",                   "lift"),
-            ("escalator",              "escalator"),
-            ("hearing_loop",           "hearing_loop"),
-            ("accessible_ramp",        "accessible_ramp"),
-            ("accessible_parking",     "accessible_parking"),
+            ("wheelchair_accessible",               "wheelchair_accessible"),
+            ("lift",                                "lift"),
+            ("escalator",                           "escalator"),
+            ("hearing_loop",                        "hearing_loop"),
+            ("accessible_ramp",                     "accessible_ramp"),
+            ("accessible_parking",                  "accessible_parking"),
+            ("accessible_phone",                    "accessible_phone"),
+            ("stairs_to_platform",                  "stairs_to_platform"),
+            ("platform_number_for_accessible_tram", "accessible_tram_platform"),
         ]:
             val = acc.get(key)
             if val is not None:
@@ -471,6 +545,51 @@ class Connector:
                     return disruptions
         except Exception as err:
             _LOGGER.warning("Failed to fetch disruptions for route %s: %s", route_id, err)
+            return []
+
+    async def async_disruptions_stop(self, stop_id):
+        """Fetch active disruptions affecting the stop from the PTV API.
+
+        Returns a list of disruption dicts in the same format as
+        async_disruptions() so the two lists can be merged directly.
+        Returns [] on any error.
+        """
+        url = build_URL(self.id, self.api_key, DISRUPTIONS_STOP_PATH.format(stop_id))
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        _LOGGER.debug("Stop disruptions API returned %s", response.status)
+                        return []
+                    data = await response.json()
+                    _LOGGER.debug(data)
+                    disruptions_raw = data.get("disruptions", {})
+                    if isinstance(disruptions_raw, dict):
+                        all_disruptions = [
+                            item
+                            for category in disruptions_raw.values()
+                            if isinstance(category, list)
+                            for item in category
+                        ]
+                    else:
+                        all_disruptions = disruptions_raw
+
+                    disruptions = []
+                    for d in all_disruptions:
+                        disruptions.append({
+                            "disruption_id": d.get("disruption_id"),
+                            "title": d.get("title", ""),
+                            "disruption_type": d.get("disruption_type", ""),
+                            "disruption_status": d.get("disruption_status", ""),
+                            "severity": _classify_severity(d.get("disruption_type", "")),
+                            "url": d.get("url", ""),
+                            "from_date": d.get("from_date"),
+                            "to_date": d.get("to_date"),
+                        })
+                    return disruptions
+        except Exception as err:
+            _LOGGER.warning("Failed to fetch stop disruptions for stop %s: %s", stop_id, err)
             return []
 
 
