@@ -165,3 +165,5 @@ cython_debug/
 # AI related files
 .claude/
 CLAUDE.md
+config
+compose.yaml
