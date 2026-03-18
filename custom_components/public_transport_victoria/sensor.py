@@ -87,6 +87,22 @@ class DepartureSensor(PtvDepartureEntity, SensorEntity):
             "attribution": ATTRIBUTION,
         }
 
+        # Vehicle descriptor — air con, low floor, vehicle type, operator
+        vd = dep.get("vehicle_descriptor") or {}
+        if vd:
+            attrs["vehicle_description"] = vd.get("description", "")
+            attrs["air_conditioned"] = vd.get("air_conditioned")
+            attrs["low_floor"] = vd.get("low_floor")
+            attrs["operator"] = vd.get("operator", "")
+            attrs["vehicle_id"] = vd.get("id", "")
+
+        # Vehicle position — GPS coordinates and bearing
+        vp = dep.get("vehicle_position") or {}
+        if vp and vp.get("latitude") is not None:
+            attrs["vehicle_latitude"] = vp.get("latitude")
+            attrs["vehicle_longitude"] = vp.get("longitude")
+            attrs["vehicle_bearing"] = vp.get("bearing")
+
         # When real-time data is available, compute variance from schedule.
         # variance_minutes: signed int for automations (positive=late, negative=early)
         # punctuality: human-readable string for display

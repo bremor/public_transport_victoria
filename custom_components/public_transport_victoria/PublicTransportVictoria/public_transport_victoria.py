@@ -1,6 +1,5 @@
 """Public Transport Victoria API connector."""
 import aiohttp
-import asyncio
 import datetime
 import hmac
 import logging
@@ -23,6 +22,9 @@ BASE_URL = "https://timetableapi.ptv.vic.gov.au"
 DEPARTURES_PATH = "/v3/departures/route_type/{}/stop/{}/route/{}?direction_id={}&max_results={}"
 DEPARTURES_ROUTE_STOP_PATH = "/v3/departures/route_type/{}/stop/{}/route/{}?max_results={}"
 DEPARTURES_STOP_PATH = "/v3/departures/route_type/{}/stop/{}?max_results={}"
+# Appended to runtime departures paths to get run/vehicle data inline,
+# eliminating the need for separate per-departure run API calls.
+_DEPARTURES_EXPAND = "&expand=Run&expand=VehicleDescriptor&expand=VehiclePosition"
 DIRECTIONS_PATH = "/v3/directions/route/{}"
 DISRUPTIONS_PATH = "/v3/disruptions/route/{}"
 MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(minutes=2)
@@ -104,19 +106,23 @@ class Connector:
         - route + direction → filter by both (smallest result set, fastest)
         - route only        → all departures for that route at this stop
         - neither           → all departures at this stop across every route
+
+        The expand suffix requests Run, VehicleDescriptor and VehiclePosition
+        data inline so no separate per-departure run API calls are needed.
         """
         if self.route and self.direction:
-            self.departures_path = DEPARTURES_PATH.format(
+            base = DEPARTURES_PATH.format(
                 self.route_type, self.stop, self.route, self.direction, MAX_RESULTS
             )
         elif self.route:
-            self.departures_path = DEPARTURES_ROUTE_STOP_PATH.format(
+            base = DEPARTURES_ROUTE_STOP_PATH.format(
                 self.route_type, self.stop, self.route, MAX_RESULTS
             )
         else:
-            self.departures_path = DEPARTURES_STOP_PATH.format(
+            base = DEPARTURES_STOP_PATH.format(
                 self.route_type, self.stop, MAX_RESULTS
             )
+        self.departures_path = base + _DEPARTURES_EXPAND
         await self.async_update()
 
     async def async_route_types(self):
@@ -280,59 +286,62 @@ class Connector:
 
     @Throttle(MIN_TIME_BETWEEN_UPDATES)
     async def async_update(self):
-        """Update the departure information."""
+        """Update the departure information.
+
+        The departures path includes expand=Run,VehicleDescriptor,VehiclePosition
+        so all run and vehicle data arrives inline — no separate per-departure
+        API calls needed.  Disruptions are fetched concurrently if a route is set.
+        """
         url = build_URL(self.id, self.api_key, self.departures_path)
 
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    _LOGGER.debug(data)
-                    departures = data["departures"]
+                if response.status != 200:
+                    return
+                data = await response.json()
+                _LOGGER.debug(data)
 
-                    # Fetch run info for all departures AND route disruptions concurrently.
-                    # When no route is configured (stop-only mode) skip the disruptions call
-                    # since we don't have a single route_id to query.
-                    gather_tasks = [self.async_run(r["run_id"]) for r in departures]
-                    if self.route:
-                        gather_tasks.append(self.async_disruptions(self.route))
-                    results = await asyncio.gather(*gather_tasks)
+        departures = data.get("departures", [])
 
-                    if self.route:
-                        run_infos = results[:-1]
-                        self.disruptions = results[-1]
-                    else:
-                        run_infos = results
-                        self.disruptions = []
+        # Expanded data: runs keyed by str(run_id); vehicle dicts may be nested
+        # inside each run object OR provided as separate top-level dicts.
+        runs_map = {str(k): v for k, v in data.get("runs", {}).items()}
+        vd_map   = {str(k): v for k, v in data.get("vehicle_descriptors", {}).items()}
+        vp_map   = {str(k): v for k, v in data.get("vehicle_positions", {}).items()}
 
-                    self.departures = []
-                    for r, run_info in zip(departures, run_infos):
-                        effective_utc = r["estimated_departure_utc"] or r["scheduled_departure_utc"]
-                        r["is_realtime"] = r["estimated_departure_utc"] is not None
-                        r["departure"] = convert_utc_to_local(effective_utc, self.hass)
-                        r["is_express"] = run_info.get("express_stop_count", 0) > 0 if run_info else False
-                        r["destination_name"] = run_info.get("destination_name", "") if run_info else ""
-                        self.departures.append(r)
+        # Fetch disruptions concurrently while we process departure data
+        if self.route:
+            self.disruptions = await self.async_disruptions(self.route)
+        else:
+            self.disruptions = []
 
-                    # Apply express-only filter when configured
-                    if self.filter_express:
-                        self.departures = [d for d in self.departures if d.get("is_express", False)]
+        self.departures = []
+        for r in departures:
+            effective_utc = r["estimated_departure_utc"] or r["scheduled_departure_utc"]
+            r["is_realtime"] = r["estimated_departure_utc"] is not None
+            r["departure"] = convert_utc_to_local(effective_utc, self.hass)
+
+            run_key = str(r.get("run_id", ""))
+            run_info = runs_map.get(run_key, {})
+
+            r["destination_name"] = run_info.get("destination_name", "")
+            r["is_express"] = run_info.get("express_stop_count", 0) > 0
+
+            # Vehicle descriptor: nested in run object takes priority over top-level dict
+            vd = run_info.get("vehicle_descriptor") or vd_map.get(run_key) or {}
+            r["vehicle_descriptor"] = vd if vd else None
+
+            # Vehicle position: same priority order
+            vp = run_info.get("vehicle_position") or vp_map.get(run_key) or {}
+            r["vehicle_position"] = vp if vp else None
+
+            self.departures.append(r)
+
+        if self.filter_express:
+            self.departures = [d for d in self.departures if d.get("is_express", False)]
 
         for departure in self.departures:
             _LOGGER.debug(departure)
-
-    async def async_run(self, run_id):
-        """Get run information from Public Transport Victoria API."""
-        url = build_URL(self.id, self.api_key, f"/v3/runs/{run_id}")
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    _LOGGER.debug(data)
-                    if data.get("runs"):
-                        return data["runs"][0]
-        return None
 
     async def async_disruptions(self, route_id):
         """Fetch active disruptions for the route from the PTV API.
