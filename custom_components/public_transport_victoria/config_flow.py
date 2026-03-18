@@ -29,6 +29,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     CONNECTION_CLASS = config_entries.CONN_CLASS_CLOUD_POLL
 
+    @staticmethod
+    def async_get_options_flow(config_entry):
+        """Return the options flow handler."""
+        return OptionsFlowHandler(config_entry)
+
     async def async_step_user(self, user_input=None):
         """Handle the initial step."""
         # Initialize self.data if it doesn't exist
@@ -215,6 +220,84 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="stops", data_schema=data_schema, errors=errors
         )
+
+class OptionsFlowHandler(config_entries.OptionsFlow):
+    """Handle options for Public Transport Victoria."""
+
+    def __init__(self, config_entry):
+        """Initialize options flow."""
+        self.config_entry = config_entry
+        self.data = dict(config_entry.data)
+        self.connector = None
+        self.directions = {}
+        self.stops = {}
+
+    async def async_step_init(self, user_input=None):
+        """Start the options flow by re-fetching directions for the current route."""
+        self.connector = Connector(
+            self.hass,
+            self.data[CONF_ID],
+            self.data[CONF_API_KEY],
+        )
+        self.connector.route_type = self.data[CONF_ROUTE_TYPE]
+        self.directions = await self.connector.async_directions(self.data[CONF_ROUTE])
+        return await self.async_step_direction()
+
+    async def async_step_direction(self, user_input=None):
+        """Let the user pick a new direction."""
+        data_schema = vol.Schema({
+            vol.Required(
+                CONF_DIRECTION,
+                default=self.data[CONF_DIRECTION],
+            ): vol.In(self.directions),
+        })
+
+        errors = {}
+        if user_input is not None:
+            try:
+                self.stops = await self.connector.async_stops(
+                    self.data[CONF_ROUTE], user_input[CONF_DIRECTION]
+                )
+                self.data[CONF_DIRECTION] = user_input[CONF_DIRECTION]
+                self.data[CONF_DIRECTION_NAME] = self.directions[user_input[CONF_DIRECTION]]
+                return await self.async_step_stop()
+            except CannotConnect:
+                errors["base"] = "cannot_connect"
+            except Exception:
+                _LOGGER.exception("Unexpected exception in options direction step")
+                errors["base"] = "unknown"
+
+        return self.async_show_form(
+            step_id="direction", data_schema=data_schema, errors=errors
+        )
+
+    async def async_step_stop(self, user_input=None):
+        """Let the user pick a new stop."""
+        current_stop = self.data[CONF_STOP]
+        data_schema = vol.Schema({
+            vol.Required(
+                CONF_STOP,
+                default=current_stop if current_stop in self.stops else next(iter(self.stops)),
+            ): vol.In(self.stops),
+        })
+
+        errors = {}
+        if user_input is not None:
+            try:
+                self.data[CONF_STOP] = user_input[CONF_STOP]
+                self.data[CONF_STOP_NAME] = self.stops[user_input[CONF_STOP]]
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry, data=self.data
+                )
+                return self.async_create_entry(title="", data={})
+            except Exception:
+                _LOGGER.exception("Unexpected exception in options stop step")
+                errors["base"] = "unknown"
+
+        return self.async_show_form(
+            step_id="stop", data_schema=data_schema, errors=errors
+        )
+
 
 class CannotConnect(exceptions.HomeAssistantError):
     """Error to indicate we cannot connect."""
