@@ -18,11 +18,17 @@
                     "api_key": "Developer Key"
                 }
             },
+            "route_types": {
+                "title": "Select transport mode",
+                "data": {
+                    "route_type": "Mode of transport"
+                }
+            },
             "stop_search": {
                 "title": "Find your stop or station",
                 "description": "Type part of the stop name (e.g. \"Flinders\", \"Brunswick\", \"Collins St\")",
                 "data": {
-                    "search_term": "Stop name"
+                    "stop_name": "Stop name"
                 }
             },
             "stop_results": {
@@ -41,7 +47,7 @@
             },
             "filter_direction": {
                 "title": "Filter by direction (optional)",
-                "description": "Leave on \"All directions\" to see both directions.",
+                "description": "Leave on \"All directions\" to see services in both directions.",
                 "data": {
                     "direction": "Direction"
                 }

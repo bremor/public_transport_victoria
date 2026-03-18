@@ -81,13 +81,16 @@ sensor.py → DataUpdateCoordinator (10 min poll)
 
 ### Config Flow (station-first)
 
-`async_step_user` → `async_step_stop_search` → `async_step_stop_results` → `async_step_filters` → `async_step_filter_direction` (optional)
+`async_step_user` → `async_step_route_types` → `async_step_stop_search` → `async_step_stop_results` → `async_step_filters` → `async_step_filter_direction` (optional)
 
 1. **user** — enter Developer ID and Key; skipped if another entry already has credentials
-2. **stop_search** — type a stop name; calls PTV search API (`/v3/search/{term}`)
-3. **stop_results** — pick a stop from the results (name + mode shown in dropdown)
-4. **filters** — optionally narrow by route; express-only toggle
-5. **filter_direction** — optionally narrow by direction (only shown when a specific route is selected)
+2. **route_types** — choose transport mode (Train / Tram / Bus / V/Line …); scopes the stop search
+3. **stop_search** — type a stop name; searches PTV API scoped to the chosen mode
+4. **stop_results** — searchable dropdown of matching stops
+5. **filters** — optionally narrow by route; express-only toggle
+6. **filter_direction** — optionally narrow by direction (only shown when a specific route is selected)
+
+All dropdowns use `SelectSelector` (HA's native searchable dropdown) so bus routes and long stop lists are filterable by typing.
 
 `OptionsFlowHandler` allows changing route/direction/express filters without deleting the entry.
 

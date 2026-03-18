@@ -5,6 +5,12 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.const import CONF_API_KEY, CONF_ID
+from homeassistant.helpers.selector import (
+    SelectOptionDict,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+)
 
 from .const import (
     CONF_DIRECTION,
@@ -26,19 +32,32 @@ from .PublicTransportVictoria.public_transport_victoria import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# Sentinel used in dropdowns to represent "no filter / show everything"
+# Sentinel used in optional-filter dropdowns to mean "no filter / show everything"
 _ALL = "__all__"
+
+_ALL_ROUTES_OPTION = SelectOptionDict(value=_ALL, label="— All routes —")
+_ALL_DIRECTIONS_OPTION = SelectOptionDict(value=_ALL, label="— All directions —")
+
+
+def _select(options: dict[str, str], *, prepend: list[SelectOptionDict] | None = None) -> SelectSelector:
+    """Build a searchable SelectSelector from a {value: label} dict."""
+    opts: list[SelectOptionDict] = list(prepend or [])
+    opts += [SelectOptionDict(value=k, label=v) for k, v in options.items()]
+    return SelectSelector(
+        SelectSelectorConfig(options=opts, mode=SelectSelectorMode.DROPDOWN)
+    )
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Public Transport Victoria.
 
     Setup sequence:
-      1. user         — enter Developer ID and Key (skipped when re-adding if creds exist)
-      2. stop_search  — type a stop/station name to search
-      3. stop_results — pick a stop from the search results
-      4. filters      — optionally narrow by route; toggle express-only
-      5. filter_direction — optionally narrow by direction (shown only when a route is picked)
+      1. user             — enter Developer ID and Key (skipped when re-adding if creds exist)
+      2. route_types      — choose transport mode (Train / Tram / Bus / V/Line …)
+      3. stop_search      — type a stop/station name to search within that mode
+      4. stop_results     — searchable dropdown of matching stops
+      5. filters          — optionally narrow by route; express-only toggle
+      6. filter_direction — optionally narrow by direction (shown only when a route is picked)
     """
 
     VERSION = 1
@@ -57,7 +76,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle the initial credentials step.
 
         If credentials already exist in another entry, reuse them and jump
-        straight to stop search so the user doesn't need to retype their key.
+        straight to mode selection so the user doesn't need to retype their key.
         """
         if not hasattr(self, "data"):
             self.data = {}
@@ -70,7 +89,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self.connector = Connector(
                 self.hass, entry.data[CONF_ID], entry.data[CONF_API_KEY]
             )
-            return await self.async_step_stop_search()
+            self._route_types = await self.connector.async_route_types()
+            return await self.async_step_route_types()
 
         data_schema = vol.Schema(
             {
@@ -85,12 +105,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self.connector = Connector(
                     self.hass, user_input[CONF_ID], user_input[CONF_API_KEY]
                 )
-                # Validate credentials — raises InvalidAuth or CannotConnect on failure
-                await self.connector.async_route_types()
+                # Validate credentials and fetch available modes in one call
+                self._route_types = await self.connector.async_route_types()
 
                 self.data[CONF_ID] = user_input[CONF_ID]
                 self.data[CONF_API_KEY] = user_input[CONF_API_KEY]
-                return await self.async_step_stop_search()
+                return await self.async_step_route_types()
 
             except InvalidAuth:
                 errors["base"] = "invalid_auth"
@@ -105,25 +125,50 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     # ------------------------------------------------------------------
-    # Step 2 — stop name search
+    # Step 2 — transport mode
+    # ------------------------------------------------------------------
+
+    async def async_step_route_types(self, user_input=None):
+        """Let the user pick a transport mode before searching for a stop."""
+        data_schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_ROUTE_TYPE,
+                    default=next(iter(self._route_types)),
+                ): _select(self._route_types),
+            }
+        )
+
+        if user_input is not None:
+            rt = user_input[CONF_ROUTE_TYPE]
+            self.data[CONF_ROUTE_TYPE] = rt
+            self.data[CONF_ROUTE_TYPE_NAME] = self._route_types[rt]
+            return await self.async_step_stop_search()
+
+        return self.async_show_form(step_id="route_types", data_schema=data_schema)
+
+    # ------------------------------------------------------------------
+    # Step 3 — stop name search
     # ------------------------------------------------------------------
 
     async def async_step_stop_search(self, user_input=None):
         """Show a text-input form; search PTV on submit and advance to results."""
         data_schema = vol.Schema(
             {
-                vol.Required("search_term"): str,
+                vol.Required("stop_name"): str,
             }
         )
 
         errors = {}
         if user_input is not None:
-            term = user_input["search_term"].strip()
+            term = user_input["stop_name"].strip()
             if not term:
                 errors["base"] = "search_term_empty"
             else:
                 try:
-                    dropdown, meta = await self.connector.async_search_stops(term)
+                    dropdown, meta = await self.connector.async_search_stops(
+                        term, route_type=self.data[CONF_ROUTE_TYPE]
+                    )
                     if not dropdown:
                         errors["base"] = "no_stops_found"
                     else:
@@ -141,16 +186,16 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     # ------------------------------------------------------------------
-    # Step 3 — pick a stop from the search results
+    # Step 4 — pick a stop from the search results
     # ------------------------------------------------------------------
 
     async def async_step_stop_results(self, user_input=None):
-        """Let the user pick one stop from the search results."""
+        """Let the user pick one stop from the search results (searchable dropdown)."""
         data_schema = vol.Schema(
             {
-                vol.Required(CONF_STOP, default=next(iter(self._stop_dropdown))): vol.In(
-                    self._stop_dropdown
-                ),
+                vol.Required(
+                    CONF_STOP, default=next(iter(self._stop_dropdown))
+                ): _select(self._stop_dropdown),
             }
         )
 
@@ -160,11 +205,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             m = self._stop_meta[key]
             self.data[CONF_STOP] = m["stop_id"]
             self.data[CONF_STOP_NAME] = m["stop_name"]
+            # route_type is already in self.data from step 2; keep for completeness
             self.data[CONF_ROUTE_TYPE] = m["route_type"]
             self.data[CONF_ROUTE_TYPE_NAME] = m["route_type_name"]
 
             try:
-                # Pre-load routes so the filters step can show them immediately
                 self._routes = await self.connector.async_routes(m["route_type"])
                 return await self.async_step_filters()
             except CannotConnect:
@@ -178,17 +223,16 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     # ------------------------------------------------------------------
-    # Step 4 — optional filters: route + express
+    # Step 5 — optional filters: route + express
     # ------------------------------------------------------------------
 
     async def async_step_filters(self, user_input=None):
         """Offer optional route filter and express-only toggle."""
-        routes = {_ALL: "— All routes —"}
-        routes.update(self._routes)
-
         data_schema = vol.Schema(
             {
-                vol.Required(CONF_ROUTE, default=_ALL): vol.In(routes),
+                vol.Required(CONF_ROUTE, default=_ALL): _select(
+                    self._routes, prepend=[_ALL_ROUTES_OPTION]
+                ),
                 vol.Required(CONF_FILTER_EXPRESS, default=False): bool,
             }
         )
@@ -210,7 +254,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     _LOGGER.exception("Unexpected exception loading directions")
                     errors["base"] = "unknown"
             else:
-                # No route filter — skip direction step and create the entry
                 return self._create_entry()
 
         return self.async_show_form(
@@ -218,17 +261,16 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     # ------------------------------------------------------------------
-    # Step 5 — optional direction filter (only reached when a route was chosen)
+    # Step 6 — optional direction filter
     # ------------------------------------------------------------------
 
     async def async_step_filter_direction(self, user_input=None):
         """Optionally narrow departures to a specific direction."""
-        directions = {_ALL: "— All directions —"}
-        directions.update(self._directions)
-
         data_schema = vol.Schema(
             {
-                vol.Required(CONF_DIRECTION, default=_ALL): vol.In(directions),
+                vol.Required(CONF_DIRECTION, default=_ALL): _select(
+                    self._directions, prepend=[_ALL_DIRECTIONS_OPTION]
+                ),
             }
         )
 
@@ -267,8 +309,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     """Allow changing route/direction/express filters without re-adding the entry.
 
     The stop and route_type are fixed; only the filters can be updated.
-    Changes are saved back into config_entry.data (not options) so the
-    existing Connector constructor code in __init__.py works unchanged.
+    Changes are saved back into config_entry.data so the Connector in
+    __init__.py works unchanged.
     """
 
     def __init__(self, config_entry):
@@ -291,18 +333,18 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_filters(self, user_input=None):
         """Show the route + express filter form, pre-filled with current values."""
-        routes = {_ALL: "— All routes —"}
-        routes.update(self._routes)
-
         current_route = self.data.get(CONF_ROUTE, _ALL)
-        if current_route not in routes:
+        if current_route not in self._routes:
             current_route = _ALL
 
         data_schema = vol.Schema(
             {
-                vol.Required(CONF_ROUTE, default=current_route): vol.In(routes),
+                vol.Required(CONF_ROUTE, default=current_route): _select(
+                    self._routes, prepend=[_ALL_ROUTES_OPTION]
+                ),
                 vol.Required(
-                    CONF_FILTER_EXPRESS, default=self.data.get(CONF_FILTER_EXPRESS, False)
+                    CONF_FILTER_EXPRESS,
+                    default=self.data.get(CONF_FILTER_EXPRESS, False),
                 ): bool,
             }
         )
@@ -338,16 +380,15 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_filter_direction(self, user_input=None):
         """Optionally narrow to a direction."""
-        directions = {_ALL: "— All directions —"}
-        directions.update(self._directions)
-
         current_dir = self.data.get(CONF_DIRECTION, _ALL)
-        if current_dir not in directions:
+        if current_dir not in self._directions:
             current_dir = _ALL
 
         data_schema = vol.Schema(
             {
-                vol.Required(CONF_DIRECTION, default=current_dir): vol.In(directions),
+                vol.Required(CONF_DIRECTION, default=current_dir): _select(
+                    self._directions, prepend=[_ALL_DIRECTIONS_OPTION]
+                ),
             }
         )
 
