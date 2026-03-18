@@ -3,6 +3,7 @@ import datetime
 import logging
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
+from homeassistant.const import EntityCategory
 from homeassistant.util.dt import get_time_zone
 
 from .const import ATTRIBUTION, DOMAIN
@@ -103,6 +104,7 @@ class DeparturePlatformSensor(PtvDepartureEntity, SensorEntity):
     """
 
     _attr_icon = "mdi:sign-direction"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
     def unique_id(self) -> str:

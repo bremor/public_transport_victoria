@@ -2,6 +2,7 @@
 import logging
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity
+from homeassistant.const import EntityCategory
 
 from .const import DOMAIN
 from .entity import DEPARTURE_NAMES, PtvDepartureEntity, PtvEntity
@@ -27,6 +28,7 @@ class DepartureRealtimeBinarySensor(PtvDepartureEntity, BinarySensorEntity):
     """On when the departure time shown is real-time (not just the timetable)."""
 
     _attr_icon = "mdi:satellite-uplink"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
     def unique_id(self) -> str:
@@ -48,6 +50,7 @@ class DepartureExpressBinarySensor(PtvDepartureEntity, BinarySensorEntity):
     """On when the service skips stops (express run)."""
 
     _attr_icon = "mdi:train-variant"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
     def unique_id(self) -> str:

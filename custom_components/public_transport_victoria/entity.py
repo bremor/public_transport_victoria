@@ -4,9 +4,9 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 
-# Human-readable slot names — numeric prefixes keep entities sorted correctly in HA
+# Human-readable slot names used as part of entity names
 DEPARTURE_NAMES = [
-    "1st departure",
+    "next departure",
     "2nd departure",
     "3rd departure",
     "4th departure",
