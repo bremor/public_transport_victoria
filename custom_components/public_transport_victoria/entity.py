@@ -23,12 +23,30 @@ class PtvEntity(CoordinatorEntity):
         self._connector = coordinator.connector
 
     @property
+    def _device_label(self) -> str:
+        """Short label used as the entity name prefix.
+
+        Returns "Route · Stop" when a route filter is configured, or just
+        "Stop" in stop-only mode (no route filter set).
+        """
+        if self._connector.route_name:
+            return f"{self._connector.route_name} · {self._connector.stop_name}"
+        return self._connector.stop_name
+
+    @property
     def device_info(self) -> DeviceInfo:
+        # When no route filter is set, the device is just the stop.
+        # When a route is configured, show "Route · Stop" for clarity.
+        if self._connector.route_name:
+            device_name = f"{self._connector.route_name} · {self._connector.stop_name}"
+        else:
+            device_name = self._connector.stop_name
+
         return DeviceInfo(
             identifiers={(DOMAIN, self._config_entry.entry_id)},
-            name=f"{self._connector.route_name} · {self._connector.stop_name}",
+            name=device_name,
             manufacturer="Public Transport Victoria",
-            model=self._connector.route_type_name,
+            model=self._connector.route_type_name or self._connector.route_type,
         )
 
 

@@ -9,13 +9,14 @@ from homeassistant.const import CONF_API_KEY, CONF_ID
 from .const import (
     CONF_DIRECTION,
     CONF_DIRECTION_NAME,
+    CONF_FILTER_EXPRESS,
     CONF_ROUTE,
     CONF_ROUTE_NAME,
     CONF_ROUTE_TYPE,
     CONF_ROUTE_TYPE_NAME,
     CONF_STOP,
     CONF_STOP_NAME,
-    DOMAIN
+    DOMAIN,
 )
 from .PublicTransportVictoria.public_transport_victoria import (
     CannotConnect,
@@ -25,12 +26,22 @@ from .PublicTransportVictoria.public_transport_victoria import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# Sentinel used in dropdowns to represent "no filter / show everything"
+_ALL = "__all__"
+
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Public Transport Victoria."""
+    """Handle a config flow for Public Transport Victoria.
+
+    Setup sequence:
+      1. user         — enter Developer ID and Key (skipped when re-adding if creds exist)
+      2. stop_search  — type a stop/station name to search
+      3. stop_results — pick a stop from the search results
+      4. filters      — optionally narrow by route; toggle express-only
+      5. filter_direction — optionally narrow by direction (shown only when a route is picked)
+    """
 
     VERSION = 1
-
     CONNECTION_CLASS = config_entries.CONN_CLASS_CLOUD_POLL
 
     @staticmethod
@@ -38,32 +49,29 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Return the options flow handler."""
         return OptionsFlowHandler(config_entry)
 
+    # ------------------------------------------------------------------
+    # Step 1 — credentials
+    # ------------------------------------------------------------------
+
     async def async_step_user(self, user_input=None):
-        """Handle the initial step."""
-        # Initialize self.data if it doesn't exist
+        """Handle the initial credentials step.
+
+        If credentials already exist in another entry, reuse them and jump
+        straight to stop search so the user doesn't need to retype their key.
+        """
         if not hasattr(self, "data"):
             self.data = {}
-        _LOGGER.debug("Initialized self.data: %s", self.data)
 
-        # Check if there is already a config entry for this integration
-        existing_entries = self._async_current_entries()
-        if existing_entries:
-            _LOGGER.debug("Existing entry found, using existing credentials.")
-            entry = existing_entries[0]
-            _LOGGER.debug("Existing entry data: %s", entry.data)
-
-            # Copy id and api_key to self.data so it persists across steps
+        existing = self._async_current_entries()
+        if existing:
+            entry = existing[0]
             self.data[CONF_ID] = entry.data[CONF_ID]
             self.data[CONF_API_KEY] = entry.data[CONF_API_KEY]
-            _LOGGER.debug("Carried over API key and ID into self.data: %s", self.data)
-
             self.connector = Connector(
                 self.hass, entry.data[CONF_ID], entry.data[CONF_API_KEY]
             )
-            self.route_types = await self.connector.async_route_types()
-            return await self.async_step_route_types()
+            return await self.async_step_stop_search()
 
-        # If no existing entry, prompt user for API key and ID
         data_schema = vol.Schema(
             {
                 vol.Required(CONF_ID): str,
@@ -74,227 +82,289 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
         if user_input is not None:
             try:
-                _LOGGER.debug("Received user input: %s", user_input)
-                # Initialize connector to validate API key and fetch route types
                 self.connector = Connector(
                     self.hass, user_input[CONF_ID], user_input[CONF_API_KEY]
                 )
-                self.route_types = await self.connector.async_route_types()
+                # Validate credentials — raises InvalidAuth or CannotConnect on failure
+                await self.connector.async_route_types()
 
-                # Store the API key and ID in self.data for use in subsequent steps
                 self.data[CONF_ID] = user_input[CONF_ID]
                 self.data[CONF_API_KEY] = user_input[CONF_API_KEY]
-                _LOGGER.debug("Stored API key and ID in self.data: %s", self.data)
-
-                return await self.async_step_route_types()
+                return await self.async_step_stop_search()
 
             except InvalidAuth:
-                _LOGGER.error("Invalid credentials for Public Transport Victoria API.")
                 errors["base"] = "invalid_auth"
             except CannotConnect:
-                _LOGGER.error("Cannot connect to Public Transport Victoria API.")
                 errors["base"] = "cannot_connect"
             except Exception:
-                _LOGGER.exception("Unexpected exception")
+                _LOGGER.exception("Unexpected exception during credential validation")
                 errors["base"] = "unknown"
 
-        # Show the form to input the API ID and Key
         return self.async_show_form(
             step_id="user", data_schema=data_schema, errors=errors
         )
 
-    async def async_step_route_types(self, user_input=None):
-        """Handle the route types step."""
-        data_schema = vol.Schema({
-            vol.Required(CONF_ROUTE_TYPE, default=next(iter(self.route_types))): vol.In(self.route_types),
-        })
+    # ------------------------------------------------------------------
+    # Step 2 — stop name search
+    # ------------------------------------------------------------------
+
+    async def async_step_stop_search(self, user_input=None):
+        """Show a text-input form; search PTV on submit and advance to results."""
+        data_schema = vol.Schema(
+            {
+                vol.Required("search_term"): str,
+            }
+        )
 
         errors = {}
         if user_input is not None:
-            try:
-                self.routes = await self.connector.async_routes(
-                    user_input[CONF_ROUTE_TYPE]
-                )
+            term = user_input["search_term"].strip()
+            if not term:
+                errors["base"] = "search_term_empty"
+            else:
+                try:
+                    dropdown, meta = await self.connector.async_search_stops(term)
+                    if not dropdown:
+                        errors["base"] = "no_stops_found"
+                    else:
+                        self._stop_dropdown = dropdown
+                        self._stop_meta = meta
+                        return await self.async_step_stop_results()
+                except CannotConnect:
+                    errors["base"] = "cannot_connect"
+                except Exception:
+                    _LOGGER.exception("Unexpected exception during stop search")
+                    errors["base"] = "unknown"
 
-                self.data[CONF_ROUTE_TYPE] = user_input[CONF_ROUTE_TYPE]
-                self.data[CONF_ROUTE_TYPE_NAME] = self.route_types[user_input[CONF_ROUTE_TYPE]]
-
-                return await self.async_step_routes()
-
-            except CannotConnect:
-                errors["base"] = "cannot_connect"
-            except Exception:
-                _LOGGER.exception("Unexpected exception")
-                errors["base"] = "unknown"
-
-        # If there is no user input or there were errors, show the form again.
         return self.async_show_form(
-            step_id="route_types", data_schema=data_schema, errors=errors
+            step_id="stop_search", data_schema=data_schema, errors=errors
         )
 
-    async def async_step_routes(self, user_input=None):
-        """Handle the route types step."""
-        data_schema = vol.Schema({
-            vol.Required(CONF_ROUTE, default=next(iter(self.routes))): vol.In(self.routes),
-        })
+    # ------------------------------------------------------------------
+    # Step 3 — pick a stop from the search results
+    # ------------------------------------------------------------------
+
+    async def async_step_stop_results(self, user_input=None):
+        """Let the user pick one stop from the search results."""
+        data_schema = vol.Schema(
+            {
+                vol.Required(CONF_STOP, default=next(iter(self._stop_dropdown))): vol.In(
+                    self._stop_dropdown
+                ),
+            }
+        )
 
         errors = {}
         if user_input is not None:
+            key = user_input[CONF_STOP]
+            m = self._stop_meta[key]
+            self.data[CONF_STOP] = m["stop_id"]
+            self.data[CONF_STOP_NAME] = m["stop_name"]
+            self.data[CONF_ROUTE_TYPE] = m["route_type"]
+            self.data[CONF_ROUTE_TYPE_NAME] = m["route_type_name"]
+
             try:
-                self.directions = await self.connector.async_directions(
-                    user_input[CONF_ROUTE]
-                )
-
-                self.data[CONF_ROUTE] = user_input[CONF_ROUTE]
-                self.data[CONF_ROUTE_NAME] = self.routes[user_input[CONF_ROUTE]]
-
-                return await self.async_step_directions()
-
+                # Pre-load routes so the filters step can show them immediately
+                self._routes = await self.connector.async_routes(m["route_type"])
+                return await self.async_step_filters()
             except CannotConnect:
                 errors["base"] = "cannot_connect"
             except Exception:
-                _LOGGER.exception("Unexpected exception")
+                _LOGGER.exception("Unexpected exception loading routes")
                 errors["base"] = "unknown"
 
-        # If there is no user input or there were errors, show the form again.
         return self.async_show_form(
-            step_id="routes", data_schema=data_schema, errors=errors
+            step_id="stop_results", data_schema=data_schema, errors=errors
         )
 
-    async def async_step_directions(self, user_input=None):
-        """Handle the direction types step."""
-        data_schema = vol.Schema({
-            vol.Required(CONF_DIRECTION, default=next(iter(self.directions))): vol.In(self.directions),
-        })
+    # ------------------------------------------------------------------
+    # Step 4 — optional filters: route + express
+    # ------------------------------------------------------------------
+
+    async def async_step_filters(self, user_input=None):
+        """Offer optional route filter and express-only toggle."""
+        routes = {_ALL: "— All routes —"}
+        routes.update(self._routes)
+
+        data_schema = vol.Schema(
+            {
+                vol.Required(CONF_ROUTE, default=_ALL): vol.In(routes),
+                vol.Required(CONF_FILTER_EXPRESS, default=False): bool,
+            }
+        )
 
         errors = {}
         if user_input is not None:
-            try:
-                self.data[CONF_DIRECTION] = user_input[CONF_DIRECTION]
-                self.stops = await self.connector.async_stops(
-                    self.data[CONF_ROUTE], user_input[CONF_DIRECTION]
-                )
+            route = user_input[CONF_ROUTE]
+            self.data[CONF_FILTER_EXPRESS] = user_input[CONF_FILTER_EXPRESS]
 
+            if route != _ALL:
+                self.data[CONF_ROUTE] = route
+                self.data[CONF_ROUTE_NAME] = self._routes[route]
+                try:
+                    self._directions = await self.connector.async_directions(route)
+                    return await self.async_step_filter_direction()
+                except CannotConnect:
+                    errors["base"] = "cannot_connect"
+                except Exception:
+                    _LOGGER.exception("Unexpected exception loading directions")
+                    errors["base"] = "unknown"
+            else:
+                # No route filter — skip direction step and create the entry
+                return self._create_entry()
 
-                self.data[CONF_DIRECTION_NAME] = self.directions[user_input[CONF_DIRECTION]]
-
-                return await self.async_step_stops()
-
-            except CannotConnect:
-                errors["base"] = "cannot_connect"
-            except Exception:
-                _LOGGER.exception("Unexpected exception")
-                errors["base"] = "unknown"
-
-        # If there is no user input or there were errors, show the form again.
         return self.async_show_form(
-            step_id="directions", data_schema=data_schema, errors=errors
+            step_id="filters", data_schema=data_schema, errors=errors
         )
 
-    async def async_step_stops(self, user_input=None):
-        """Handle the stops types step."""
-        data_schema = vol.Schema({
-            vol.Required(CONF_STOP, default=next(iter(self.stops))): vol.In(self.stops),
-        })
+    # ------------------------------------------------------------------
+    # Step 5 — optional direction filter (only reached when a route was chosen)
+    # ------------------------------------------------------------------
 
-        errors = {}
+    async def async_step_filter_direction(self, user_input=None):
+        """Optionally narrow departures to a specific direction."""
+        directions = {_ALL: "— All directions —"}
+        directions.update(self._directions)
+
+        data_schema = vol.Schema(
+            {
+                vol.Required(CONF_DIRECTION, default=_ALL): vol.In(directions),
+            }
+        )
+
         if user_input is not None:
-            try:
-                self.data[CONF_STOP] = user_input[CONF_STOP]
-                self.data[CONF_STOP_NAME] = self.stops[user_input[CONF_STOP]]
+            direction = user_input[CONF_DIRECTION]
+            if direction != _ALL:
+                self.data[CONF_DIRECTION] = direction
+                self.data[CONF_DIRECTION_NAME] = self._directions[direction]
+            return self._create_entry()
 
-                title = "{} line to {} from {}".format(
-                    self.data[CONF_ROUTE_NAME],
-                    self.data[CONF_DIRECTION_NAME],
-                    self.data[CONF_STOP_NAME]
-                )
-
-                return self.async_create_entry(title=title, data=self.data)
-
-            except CannotConnect:
-                errors["base"] = "cannot_connect"
-            except Exception:
-                _LOGGER.exception("Unexpected exception")
-                errors["base"] = "unknown"
-
-        # If there is no user input or there were errors, show the form again.
         return self.async_show_form(
-            step_id="stops", data_schema=data_schema, errors=errors
+            step_id="filter_direction", data_schema=data_schema
         )
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _create_entry(self):
+        """Build the entry title and create the config entry."""
+        stop = self.data[CONF_STOP_NAME]
+        route = self.data.get(CONF_ROUTE_NAME, "")
+        direction = self.data.get(CONF_DIRECTION_NAME, "")
+
+        if route and direction:
+            title = f"{stop} · {route} → {direction}"
+        elif route:
+            title = f"{stop} · {route}"
+        else:
+            title = stop
+
+        return self.async_create_entry(title=title, data=self.data)
+
 
 class OptionsFlowHandler(config_entries.OptionsFlow):
-    """Handle options for Public Transport Victoria."""
+    """Allow changing route/direction/express filters without re-adding the entry.
+
+    The stop and route_type are fixed; only the filters can be updated.
+    Changes are saved back into config_entry.data (not options) so the
+    existing Connector constructor code in __init__.py works unchanged.
+    """
 
     def __init__(self, config_entry):
-        """Initialize options flow."""
+        """Initialise the options flow."""
         self.config_entry = config_entry
         self.data = dict(config_entry.data)
         self.connector = None
-        self.directions = {}
-        self.stops = {}
+        self._routes = {}
+        self._directions = {}
 
     async def async_step_init(self, user_input=None):
-        """Start the options flow by re-fetching directions for the current route."""
+        """Bootstrap: create a temporary Connector and load routes."""
         self.connector = Connector(
             self.hass,
             self.data[CONF_ID],
             self.data[CONF_API_KEY],
         )
-        self.connector.route_type = self.data[CONF_ROUTE_TYPE]
-        self.directions = await self.connector.async_directions(self.data[CONF_ROUTE])
-        return await self.async_step_direction()
+        self._routes = await self.connector.async_routes(self.data[CONF_ROUTE_TYPE])
+        return await self.async_step_filters()
 
-    async def async_step_direction(self, user_input=None):
-        """Let the user pick a new direction."""
-        data_schema = vol.Schema({
-            vol.Required(
-                CONF_DIRECTION,
-                default=self.data[CONF_DIRECTION],
-            ): vol.In(self.directions),
-        })
+    async def async_step_filters(self, user_input=None):
+        """Show the route + express filter form, pre-filled with current values."""
+        routes = {_ALL: "— All routes —"}
+        routes.update(self._routes)
+
+        current_route = self.data.get(CONF_ROUTE, _ALL)
+        if current_route not in routes:
+            current_route = _ALL
+
+        data_schema = vol.Schema(
+            {
+                vol.Required(CONF_ROUTE, default=current_route): vol.In(routes),
+                vol.Required(
+                    CONF_FILTER_EXPRESS, default=self.data.get(CONF_FILTER_EXPRESS, False)
+                ): bool,
+            }
+        )
 
         errors = {}
         if user_input is not None:
-            try:
-                self.stops = await self.connector.async_stops(
-                    self.data[CONF_ROUTE], user_input[CONF_DIRECTION]
-                )
-                self.data[CONF_DIRECTION] = user_input[CONF_DIRECTION]
-                self.data[CONF_DIRECTION_NAME] = self.directions[user_input[CONF_DIRECTION]]
-                return await self.async_step_stop()
-            except CannotConnect:
-                errors["base"] = "cannot_connect"
-            except Exception:
-                _LOGGER.exception("Unexpected exception in options direction step")
-                errors["base"] = "unknown"
+            route = user_input[CONF_ROUTE]
+            self.data[CONF_FILTER_EXPRESS] = user_input[CONF_FILTER_EXPRESS]
+
+            # Clear old route/direction values so stale data doesn't linger
+            self.data.pop(CONF_ROUTE, None)
+            self.data.pop(CONF_ROUTE_NAME, None)
+            self.data.pop(CONF_DIRECTION, None)
+            self.data.pop(CONF_DIRECTION_NAME, None)
+
+            if route != _ALL:
+                self.data[CONF_ROUTE] = route
+                self.data[CONF_ROUTE_NAME] = self._routes[route]
+                try:
+                    self._directions = await self.connector.async_directions(route)
+                    return await self.async_step_filter_direction()
+                except CannotConnect:
+                    errors["base"] = "cannot_connect"
+                except Exception:
+                    _LOGGER.exception("Unexpected exception loading directions in options")
+                    errors["base"] = "unknown"
+            else:
+                return self._save_and_finish()
 
         return self.async_show_form(
-            step_id="direction", data_schema=data_schema, errors=errors
+            step_id="filters", data_schema=data_schema, errors=errors
         )
 
-    async def async_step_stop(self, user_input=None):
-        """Let the user pick a new stop."""
-        current_stop = self.data[CONF_STOP]
-        data_schema = vol.Schema({
-            vol.Required(
-                CONF_STOP,
-                default=current_stop if current_stop in self.stops else next(iter(self.stops)),
-            ): vol.In(self.stops),
-        })
+    async def async_step_filter_direction(self, user_input=None):
+        """Optionally narrow to a direction."""
+        directions = {_ALL: "— All directions —"}
+        directions.update(self._directions)
 
-        errors = {}
+        current_dir = self.data.get(CONF_DIRECTION, _ALL)
+        if current_dir not in directions:
+            current_dir = _ALL
+
+        data_schema = vol.Schema(
+            {
+                vol.Required(CONF_DIRECTION, default=current_dir): vol.In(directions),
+            }
+        )
+
         if user_input is not None:
-            try:
-                self.data[CONF_STOP] = user_input[CONF_STOP]
-                self.data[CONF_STOP_NAME] = self.stops[user_input[CONF_STOP]]
-                self.hass.config_entries.async_update_entry(
-                    self.config_entry, data=self.data
-                )
-                return self.async_create_entry(title="", data={})
-            except Exception:
-                _LOGGER.exception("Unexpected exception in options stop step")
-                errors["base"] = "unknown"
+            direction = user_input[CONF_DIRECTION]
+            if direction != _ALL:
+                self.data[CONF_DIRECTION] = direction
+                self.data[CONF_DIRECTION_NAME] = self._directions[direction]
+            return self._save_and_finish()
 
         return self.async_show_form(
-            step_id="stop", data_schema=data_schema, errors=errors
+            step_id="filter_direction", data_schema=data_schema
         )
+
+    def _save_and_finish(self):
+        """Persist updated data back into the config entry and trigger reload."""
+        self.hass.config_entries.async_update_entry(
+            self.config_entry, data=self.data
+        )
+        return self.async_create_entry(title="", data={})

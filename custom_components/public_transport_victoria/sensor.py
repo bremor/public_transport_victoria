@@ -35,7 +35,7 @@ class DepartureSensor(PtvDepartureEntity, SensorEntity):
 
     @property
     def name(self) -> str:
-        return f"{self._connector.route_name} · {self._connector.stop_name} {DEPARTURE_NAMES[self._slot]}"
+        return f"{self._device_label} {DEPARTURE_NAMES[self._slot]}"
 
     @property
     def native_value(self) -> datetime.datetime | None:
@@ -84,7 +84,7 @@ class DepartureMinutesSensor(PtvDepartureEntity, SensorEntity):
 
     @property
     def name(self) -> str:
-        return f"{self._connector.route_name} · {self._connector.stop_name} {DEPARTURE_NAMES[self._slot]} minutes"
+        return f"{self._device_label} {DEPARTURE_NAMES[self._slot]} minutes"
 
     @property
     def native_value(self) -> int | None:
@@ -110,7 +110,7 @@ class DeparturePlatformSensor(PtvDepartureEntity, SensorEntity):
 
     @property
     def name(self) -> str:
-        return f"{self._connector.route_name} · {self._connector.stop_name} {DEPARTURE_NAMES[self._slot]} platform"
+        return f"{self._device_label} {DEPARTURE_NAMES[self._slot]} platform"
 
     @property
     def entity_registry_enabled_default(self) -> bool:

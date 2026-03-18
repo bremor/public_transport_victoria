@@ -34,7 +34,7 @@ class DepartureRealtimeBinarySensor(PtvDepartureEntity, BinarySensorEntity):
 
     @property
     def name(self) -> str:
-        return f"{self._connector.route_name} · {self._connector.stop_name} {DEPARTURE_NAMES[self._slot]} real-time"
+        return f"{self._device_label} {DEPARTURE_NAMES[self._slot]} real-time"
 
     @property
     def is_on(self) -> bool | None:
@@ -55,7 +55,7 @@ class DepartureExpressBinarySensor(PtvDepartureEntity, BinarySensorEntity):
 
     @property
     def name(self) -> str:
-        return f"{self._connector.route_name} · {self._connector.stop_name} {DEPARTURE_NAMES[self._slot]} express"
+        return f"{self._device_label} {DEPARTURE_NAMES[self._slot]} express"
 
     @property
     def is_on(self) -> bool | None:
@@ -85,7 +85,7 @@ class RouteDisruptedBinarySensor(PtvEntity, BinarySensorEntity):
 
     @property
     def name(self) -> str:
-        return f"{self._connector.route_name} · {self._connector.stop_name} disrupted"
+        return f"{self._device_label} disrupted"
 
     @property
     def is_on(self) -> bool:

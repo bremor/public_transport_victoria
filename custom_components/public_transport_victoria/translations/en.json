@@ -6,6 +6,8 @@
         "error": {
             "cannot_connect": "Unable to connect",
             "invalid_auth": "Invalid Developer ID or Key",
+            "no_stops_found": "No stops found — try a different search term",
+            "search_term_empty": "Please enter a stop name to search",
             "unknown": "Unknown error"
         },
         "step": {
@@ -16,50 +18,56 @@
                     "api_key": "Developer Key"
                 }
             },
-            "route_types": {
-                "title": "Select your mode of transport",
+            "stop_search": {
+                "title": "Find your stop or station",
+                "description": "Type part of the stop name (e.g. \"Flinders\", \"Brunswick\", \"Collins St\")",
                 "data": {
-                    "route_type": "Select mode"
+                    "search_term": "Stop name"
                 }
             },
-            "routes": {
-                "title": "Select your line or route",
-                "data": {
-                    "route": "Select line or route"
-                }
-            },
-            "directions": {
-                "title": "Select a direction",
-                "data": {
-                    "direction": "Select direction"
-                }
-            },
-            "stops": {
+            "stop_results": {
                 "title": "Select your stop",
                 "data": {
-                    "stop": "Select stop"
+                    "stop": "Stop"
+                }
+            },
+            "filters": {
+                "title": "Filter departures (optional)",
+                "description": "Leave on \"All routes\" to see every service from this stop.",
+                "data": {
+                    "route": "Route",
+                    "filter_express": "Express services only"
+                }
+            },
+            "filter_direction": {
+                "title": "Filter by direction (optional)",
+                "description": "Leave on \"All directions\" to see both directions.",
+                "data": {
+                    "direction": "Direction"
                 }
             }
         }
-   },
-   "options": {
-       "error": {
-           "cannot_connect": "Unable to connect",
-           "unknown": "Unknown error"
-       },
-       "step": {
-           "direction": {
-               "title": "Change direction",
-               "data": {
-                   "direction": "Select direction"
-               }
-           },
-           "stop": {
-               "title": "Change stop",
-               "data": {
-                   "stop": "Select stop"
-               }
-           }
-       }
-   }
+    },
+    "options": {
+        "error": {
+            "cannot_connect": "Unable to connect",
+            "unknown": "Unknown error"
+        },
+        "step": {
+            "filters": {
+                "title": "Update filters",
+                "description": "Change which route and direction are tracked from this stop.",
+                "data": {
+                    "route": "Route",
+                    "filter_express": "Express services only"
+                }
+            },
+            "filter_direction": {
+                "title": "Update direction filter",
+                "data": {
+                    "direction": "Direction"
+                }
+            }
+        }
+    }
 }

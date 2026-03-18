@@ -8,5 +8,7 @@ CONF_ROUTE_TYPE = "route_type"
 CONF_ROUTE_TYPE_NAME = "route_type_name"
 CONF_STOP = "stop"
 CONF_STOP_NAME = "stop_name"
+CONF_FILTER_EXPRESS = "filter_express"
+
 DOMAIN = "public_transport_victoria"
 ATTRIBUTION = "Licensed from Public Transport Victoria under a Creative Commons Attribution 4.0 International Licence"

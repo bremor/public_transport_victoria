@@ -7,8 +7,9 @@ from homeassistant.const import CONF_API_KEY, CONF_ID
 from homeassistant.core import HomeAssistant
 
 from .const import (
-    CONF_DIRECTION, CONF_DIRECTION_NAME, CONF_ROUTE, CONF_ROUTE_NAME,
-    CONF_ROUTE_TYPE, CONF_ROUTE_TYPE_NAME, CONF_STOP, CONF_STOP_NAME, DOMAIN
+    CONF_DIRECTION, CONF_DIRECTION_NAME, CONF_FILTER_EXPRESS,
+    CONF_ROUTE, CONF_ROUTE_NAME, CONF_ROUTE_TYPE, CONF_ROUTE_TYPE_NAME,
+    CONF_STOP, CONF_STOP_NAME, DOMAIN,
 )
 from .coordinator import PtvDataUpdateCoordinator
 from .PublicTransportVictoria.public_transport_victoria import Connector
@@ -30,14 +31,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass,
         entry.data[CONF_ID],
         entry.data[CONF_API_KEY],
-        entry.data[CONF_ROUTE_TYPE],
-        entry.data[CONF_ROUTE],
-        entry.data[CONF_DIRECTION],
+        entry.data.get(CONF_ROUTE_TYPE),
+        entry.data.get(CONF_ROUTE),
+        entry.data.get(CONF_DIRECTION),
         entry.data[CONF_STOP],
-        entry.data[CONF_ROUTE_TYPE_NAME],
-        entry.data[CONF_ROUTE_NAME],
-        entry.data[CONF_DIRECTION_NAME],
+        entry.data.get(CONF_ROUTE_TYPE_NAME),
+        entry.data.get(CONF_ROUTE_NAME),
+        entry.data.get(CONF_DIRECTION_NAME),
         entry.data[CONF_STOP_NAME],
+        entry.data.get(CONF_FILTER_EXPRESS, False),
     )
     # _init() calls async_update() to pre-populate connector.departures
     await connector._init()

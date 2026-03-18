@@ -19,14 +19,27 @@ class CannotConnect(Exception):
 
 
 BASE_URL = "https://timetableapi.ptv.vic.gov.au"
+# Departure paths — most specific to least specific
 DEPARTURES_PATH = "/v3/departures/route_type/{}/stop/{}/route/{}?direction_id={}&max_results={}"
+DEPARTURES_ROUTE_STOP_PATH = "/v3/departures/route_type/{}/stop/{}/route/{}?max_results={}"
+DEPARTURES_STOP_PATH = "/v3/departures/route_type/{}/stop/{}?max_results={}"
 DIRECTIONS_PATH = "/v3/directions/route/{}"
 DISRUPTIONS_PATH = "/v3/disruptions/route/{}"
 MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(minutes=2)
 MAX_RESULTS = 5
 ROUTE_TYPES_PATH = "/v3/route_types"
 ROUTES_PATH = "/v3/routes?route_types={}"
+SEARCH_PATH = "/v3/search/{}?include_outlets=false&include_addresses=false"
 STOPS_PATH = "/v3/stops/route/{}/route_type/{}?direction_id={}"
+
+# Human-readable mode names for stop search results display
+_ROUTE_TYPE_NAMES = {
+    "0": "Train",
+    "1": "Tram",
+    "2": "Bus",
+    "3": "V/Line",
+    "4": "Night Bus",
+}
 
 # Maps disruption_type substrings (case-insensitive) to a severity tier.
 # First match wins — more specific strings should come first.
@@ -65,7 +78,8 @@ class Connector:
 
     def __init__(self, hass, id, api_key, route_type=None, route=None,
                  direction=None, stop=None, route_type_name=None,
-                 route_name=None, direction_name=None, stop_name=None):
+                 route_name=None, direction_name=None, stop_name=None,
+                 filter_express=False):
         """Init Public Transport Victoria connector."""
         self.hass = hass
         self.id = id
@@ -78,14 +92,30 @@ class Connector:
         self.route_name = route_name
         self.direction_name = direction_name
         self.stop_name = stop_name
+        self.filter_express = filter_express
         self.departures = []
         self.disruptions = []
 
     async def _init(self):
-        """Async Init Public Transport Victoria connector."""
-        self.departures_path = DEPARTURES_PATH.format(
-            self.route_type, self.stop, self.route, self.direction, MAX_RESULTS
-        )
+        """Async Init Public Transport Victoria connector.
+
+        Chooses the most specific departure path available:
+        - route + direction → filter by both (smallest result set, fastest)
+        - route only        → all departures for that route at this stop
+        - neither           → all departures at this stop across every route
+        """
+        if self.route and self.direction:
+            self.departures_path = DEPARTURES_PATH.format(
+                self.route_type, self.stop, self.route, self.direction, MAX_RESULTS
+            )
+        elif self.route:
+            self.departures_path = DEPARTURES_ROUTE_STOP_PATH.format(
+                self.route_type, self.stop, self.route, MAX_RESULTS
+            )
+        else:
+            self.departures_path = DEPARTURES_STOP_PATH.format(
+                self.route_type, self.stop, MAX_RESULTS
+            )
         await self.async_update()
 
     async def async_route_types(self):
@@ -114,6 +144,52 @@ class Connector:
                     return route_types
         except (aiohttp.ClientError, TimeoutError) as err:
             raise CannotConnect(str(err)) from err
+
+    async def async_search_stops(self, term, route_type=None):
+        """Search for stops matching *term* using the PTV search API.
+
+        Returns a dict of composite_key → display_name suitable for vol.In(),
+        plus a parallel dict composite_key → metadata for config entry storage.
+
+        composite_key format: "{stop_id}:{route_type}"
+        """
+        import urllib.parse
+
+        path = SEARCH_PATH.format(urllib.parse.quote(term, safe=""))
+        if route_type is not None:
+            path += f"&route_types={route_type}"
+        url = build_URL(self.id, self.api_key, path)
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        _LOGGER.debug("Stop search returned status %s", response.status)
+                        return {}, {}
+                    data = await response.json()
+                    _LOGGER.debug(data)
+
+                    dropdown = {}   # composite_key → "Stop Name [Mode]"
+                    meta = {}       # composite_key → {stop_id, stop_name, route_type, route_type_name}
+
+                    for s in data.get("stops", []):
+                        rt = str(s.get("route_type", "0"))
+                        key = f"{s['stop_id']}:{rt}"
+                        mode = _ROUTE_TYPE_NAMES.get(rt, rt)
+                        suburb = s.get("stop_suburb", "")
+                        display = f"{s['stop_name']}{', ' + suburb if suburb else ''} [{mode}]"
+                        dropdown[key] = display
+                        meta[key] = {
+                            "stop_id": str(s["stop_id"]),
+                            "stop_name": s["stop_name"],
+                            "route_type": rt,
+                            "route_type_name": _ROUTE_TYPE_NAMES.get(rt, rt),
+                        }
+
+                    return dropdown, meta
+        except (aiohttp.ClientError, TimeoutError) as err:
+            _LOGGER.warning("Stop search failed: %s", err)
+            return {}, {}
 
     async def async_routes(self, route_type):
         """Get routes from Public Transport Victoria API."""
@@ -207,13 +283,20 @@ class Connector:
                     _LOGGER.debug(data)
                     departures = data["departures"]
 
-                    # Fetch run info for all departures AND route disruptions concurrently
-                    results = await asyncio.gather(
-                        *[self.async_run(r["run_id"]) for r in departures],
-                        self.async_disruptions(self.route),
-                    )
-                    run_infos = results[:-1]
-                    self.disruptions = results[-1]
+                    # Fetch run info for all departures AND route disruptions concurrently.
+                    # When no route is configured (stop-only mode) skip the disruptions call
+                    # since we don't have a single route_id to query.
+                    gather_tasks = [self.async_run(r["run_id"]) for r in departures]
+                    if self.route:
+                        gather_tasks.append(self.async_disruptions(self.route))
+                    results = await asyncio.gather(*gather_tasks)
+
+                    if self.route:
+                        run_infos = results[:-1]
+                        self.disruptions = results[-1]
+                    else:
+                        run_infos = results
+                        self.disruptions = []
 
                     self.departures = []
                     for r, run_info in zip(departures, run_infos):
@@ -223,6 +306,10 @@ class Connector:
                         r["minutes_until"] = minutes_until_departure(effective_utc)
                         r["is_express"] = run_info.get("express_stop_count", 0) > 0 if run_info else False
                         self.departures.append(r)
+
+                    # Apply express-only filter when configured
+                    if self.filter_express:
+                        self.departures = [d for d in self.departures if d.get("is_express", False)]
 
         for departure in self.departures:
             _LOGGER.debug(departure)
