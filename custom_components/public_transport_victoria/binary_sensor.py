@@ -104,18 +104,20 @@ class RouteDisruptedBinarySensor(PtvEntity, BinarySensorEntity):
         )
         severity_label = {3: "severe", 2: "moderate", 1: "minor"}.get(worst, "none")
 
-        return {
+        attrs: dict = {
             "disruption_count": len(disruptions),
             "most_severe": severity_label,
-            "disruptions": [
-                {
-                    "title": d.get("title", ""),
-                    "type": d.get("disruption_type", ""),
-                    "severity": d.get("severity", ""),
-                    "from": d.get("from_date"),
-                    "to": d.get("to_date"),
-                    "url": d.get("url", ""),
-                }
-                for d in disruptions
-            ],
         }
+
+        # Flatten each disruption into numbered attributes so the HA UI
+        # shows them as simple key/value rows rather than a YAML blob.
+        for i, d in enumerate(disruptions, start=1):
+            prefix = f"disruption_{i}"
+            attrs[f"{prefix}_title"] = d.get("title", "")
+            attrs[f"{prefix}_type"] = d.get("disruption_type", "")
+            attrs[f"{prefix}_severity"] = d.get("severity", "")
+            attrs[f"{prefix}_from"] = d.get("from_date")
+            attrs[f"{prefix}_to"] = d.get("to_date")
+            attrs[f"{prefix}_url"] = d.get("url", "")
+
+        return attrs
