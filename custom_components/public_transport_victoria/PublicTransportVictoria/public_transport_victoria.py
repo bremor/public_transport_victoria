@@ -35,7 +35,7 @@ ROUTE_TYPES_PATH = "/v3/route_types"
 ROUTES_PATH = "/v3/routes?route_types={}"
 SEARCH_PATH = "/v3/search/{}?include_outlets=false&include_addresses=false"
 STOP_DETAILS_PATH = "/v3/stops/{}/route_type/{}?stop_location=false&stop_amenities=false&stop_accessibility=false&stop_contact=false&stop_ticket=false&gtfs=false&stop_staffing=false&stop_disruptions=false"
-STOP_INFO_PATH = "/v3/stops/{}/route_type/{}?stop_location=true&stop_amenities=true&stop_accessibility=true&stop_ticket=true&stop_contact=false&stop_staffing=true&gtfs=false&stop_disruptions=false"
+STOP_INFO_PATH = "/v3/stops/{}/route_type/{}?stop_location=true&stop_amenities=true&stop_accessibility=true&stop_ticket=true&stop_contact=false&stop_staffing=false&gtfs=false&stop_disruptions=false"
 STOPS_PATH = "/v3/stops/route/{}/route_type/{}?direction_id={}"
 
 # Human-readable mode names for stop search results display
@@ -393,7 +393,6 @@ class Connector:
         amen  = stop.get("stop_amenities", {}) or {}
         acc   = stop.get("stop_accessibility", {}) or {}
         tick  = stop.get("stop_ticket", {}) or {}
-        staff = stop.get("stop_staffing", {}) or {}
 
         # Build zone label
         zone_raw = tick.get("zone", "")
@@ -442,25 +441,6 @@ class Connector:
                 route_labels.append(f"{num} {name}".strip() if num else name)
             attrs["routes"] = ", ".join(sorted(set(route_labels)))
             attrs["route_count"] = len(set(route_labels))
-
-        # Staffing hours (Mon–Fri and Sat/Sun if the API returns them)
-        if staff:
-            for key, label in [
-                ("fri_am_from",   "staffed_fri_am_from"),
-                ("fri_am_to",     "staffed_fri_am_to"),
-                ("fri_pm_from",   "staffed_fri_pm_from"),
-                ("fri_pm_to",     "staffed_fri_pm_to"),
-                ("ph_from",       "staffed_ph_from"),
-                ("ph_to",         "staffed_ph_to"),
-                ("ph_additional", "staffed_ph_additional"),
-                ("sun_am_from",   "staffed_sun_am_from"),
-                ("sun_am_to",     "staffed_sun_am_to"),
-                ("sun_pm_from",   "staffed_sun_pm_from"),
-                ("sun_pm_to",     "staffed_sun_pm_to"),
-            ]:
-                val = staff.get(key)
-                if val is not None:
-                    attrs[label] = val
 
         # Amenities (Metro/V-Line stations; absent for tram stops)
         for key, label in [
