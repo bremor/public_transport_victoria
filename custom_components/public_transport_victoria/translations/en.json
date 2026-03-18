@@ -41,5 +41,25 @@
                 }
             }
         }
+   },
+   "options": {
+       "error": {
+           "cannot_connect": "Unable to connect",
+           "unknown": "Unknown error"
+       },
+       "step": {
+           "direction": {
+               "title": "Change direction",
+               "data": {
+                   "direction": "Select direction"
+               }
+           },
+           "stop": {
+               "title": "Change stop",
+               "data": {
+                   "stop": "Select stop"
+               }
+           }
+       }
    }
 }
