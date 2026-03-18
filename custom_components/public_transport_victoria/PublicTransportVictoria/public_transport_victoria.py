@@ -30,6 +30,7 @@ MAX_RESULTS = 5
 ROUTE_TYPES_PATH = "/v3/route_types"
 ROUTES_PATH = "/v3/routes?route_types={}"
 SEARCH_PATH = "/v3/search/{}?include_outlets=false&include_addresses=false"
+STOP_DETAILS_PATH = "/v3/stops/{}/route_type/{}?stop_location=false&stop_amenities=false&stop_accessibility=false&stop_contact=false&stop_ticket=false&gtfs=false&stop_staffing=false&stop_disruptions=false"
 STOPS_PATH = "/v3/stops/route/{}/route_type/{}?direction_id={}"
 
 # Human-readable mode names for stop search results display
@@ -194,66 +195,57 @@ class Connector:
     async def async_routes(self, route_type, stop_id=None):
         """Get routes from Public Transport Victoria API.
 
-        When *stop_id* is provided the results are filtered to only routes
-        that serve that stop.  The PTV /v3/routes endpoint does not support
-        stop-level filtering, so we fetch all routes for the mode then narrow
-        them down by checking which route_ids appear in a departures sample
-        from the stop.
+        When *stop_id* is provided, uses the stop-details endpoint
+        (/v3/stops/{stop_id}/route_type/{route_type}) which returns the routes
+        array for that stop directly — time-independent and a single API call.
+        Falls back to all routes for the mode if that call fails.
         """
         def _sort_key(x):
             v = x[1]
             return v if isinstance(v, tuple) else (0, v)
 
-        url = build_URL(self.id, self.api_key, ROUTES_PATH.format(route_type))
+        def _build_routes_dict(raw_routes):
+            route_list = []
+            for r in raw_routes:
+                route_number = r.get("route_number", "")
+                try:
+                    num_key = int(route_number) if route_number else float("inf")
+                except ValueError:
+                    num_key = (1, route_number)
+                route_list.append((
+                    r["route_id"],
+                    num_key,
+                    f"{route_number} - {r['route_name']}" if route_number else r["route_name"],
+                ))
+            route_list.sort(key=_sort_key)
+            return {str(rid): name for rid, _, name in route_list}
 
+        self.route_type = route_type
+
+        if stop_id is not None:
+            url = build_URL(
+                self.id, self.api_key,
+                STOP_DETAILS_PATH.format(stop_id, route_type),
+            )
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            routes = data.get("stop", {}).get("routes", [])
+                            if routes:
+                                return _build_routes_dict(routes)
+            except Exception:
+                _LOGGER.debug("Stop details failed for stop %s; falling back to all routes", stop_id)
+
+        # No stop_id, or stop details call failed — return all routes for the mode
+        url = build_URL(self.id, self.api_key, ROUTES_PATH.format(route_type))
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as response:
                 if response.status != 200:
                     return {}
                 data = await response.json()
-
-        route_list = []
-        for r in data.get("routes", []):
-            route_number = r.get("route_number", "")
-            try:
-                num_key = int(route_number) if route_number else float("inf")
-            except ValueError:
-                num_key = (1, route_number)
-            route_list.append((
-                r["route_id"],
-                num_key,
-                f"{route_number} - {r['route_name']}" if route_number else r["route_name"],
-            ))
-
-        route_list.sort(key=_sort_key)
-        all_routes = {str(rid): name for rid, _, name in route_list}
-        self.route_type = route_type
-
-        if stop_id is None:
-            return all_routes
-
-        # Filter to routes that actually serve this stop by sampling departures.
-        # A large max_results is used so infrequent services are captured too.
-        dep_path = DEPARTURES_STOP_PATH.format(route_type, stop_id, 100)
-        dep_url = build_URL(self.id, self.api_key, dep_path)
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(dep_url) as response:
-                    if response.status == 200:
-                        dep_data = await response.json()
-                        serving_ids = {
-                            str(d["route_id"])
-                            for d in dep_data.get("departures", [])
-                        }
-                        if serving_ids:
-                            return {rid: name for rid, name in all_routes.items()
-                                    if rid in serving_ids}
-        except Exception:
-            _LOGGER.debug("Could not filter routes by stop_id %s; returning all", stop_id)
-
-        # Fall back to all routes if departures call failed or returned nothing
-        # (e.g. late at night when no services are running).
-        return all_routes
+        return _build_routes_dict(data.get("routes", []))
 
     async def async_directions(self, route):
         """Get directions from Public Transport Victoria API."""
