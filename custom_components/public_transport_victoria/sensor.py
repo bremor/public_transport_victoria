@@ -78,8 +78,9 @@ class DepartureSensor(PtvDepartureEntity, SensorEntity):
             "attribution": ATTRIBUTION,
         }
 
-        # When real-time data is available compute delay so automations and
-        # dashboards can show "3 min late" / "2 min early" / "on time".
+        # When real-time data is available, compute variance from schedule.
+        # variance_minutes: signed int for automations (positive=late, negative=early)
+        # punctuality: human-readable string for display
         if is_realtime and dep.get("scheduled_departure_utc"):
             try:
                 estimated = datetime.datetime.strptime(
@@ -88,9 +89,14 @@ class DepartureSensor(PtvDepartureEntity, SensorEntity):
                 scheduled = datetime.datetime.strptime(
                     dep["scheduled_departure_utc"], "%Y-%m-%dT%H:%M:%SZ"
                 )
-                attrs["delay_minutes"] = int(
-                    (estimated - scheduled).total_seconds() / 60
-                )
+                variance = int((estimated - scheduled).total_seconds() / 60)
+                attrs["variance_minutes"] = variance
+                if variance == 0:
+                    attrs["punctuality"] = "on time"
+                elif variance > 0:
+                    attrs["punctuality"] = f"{variance} min late"
+                else:
+                    attrs["punctuality"] = f"{abs(variance)} min early"
             except (ValueError, TypeError):
                 pass
 
