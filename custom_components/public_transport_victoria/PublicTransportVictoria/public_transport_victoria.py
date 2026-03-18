@@ -76,13 +76,8 @@ class Connector:
                         raise CannotConnect(f"API returned status {response.status}")
                     data = await response.json()
                     _LOGGER.debug(data)
-                    # health != 1 means the API rejected the request (bad credentials)
-                    if data.get("health") != 1:
-                        raise InvalidAuth(
-                            f"API health check failed (health={data.get('health')})"
-                        )
                     route_types = {}
-                    for r in data["route_types"]:
+                    for r in data.get("route_types", []):
                         route_types[str(r["route_type"])] = r["route_type_name"]
                     if not route_types:
                         raise InvalidAuth("No route types returned — check Developer ID and Key")
