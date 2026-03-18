@@ -210,7 +210,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self.data[CONF_ROUTE_TYPE_NAME] = m["route_type_name"]
 
             try:
-                self._routes = await self.connector.async_routes(m["route_type"])
+                self._routes = await self.connector.async_routes(
+                    m["route_type"], stop_id=m["stop_id"]
+                )
                 return await self.async_step_filters()
             except CannotConnect:
                 errors["base"] = "cannot_connect"
@@ -328,7 +330,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             self.data[CONF_ID],
             self.data[CONF_API_KEY],
         )
-        self._routes = await self.connector.async_routes(self.data[CONF_ROUTE_TYPE])
+        self._routes = await self.connector.async_routes(
+            self.data[CONF_ROUTE_TYPE], stop_id=self.data.get(CONF_STOP)
+        )
         return await self.async_step_filters()
 
     async def async_step_filters(self, user_input=None):
