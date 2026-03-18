@@ -2,7 +2,7 @@
 import datetime
 import logging
 
-from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.const import EntityCategory
 from homeassistant.util.dt import get_time_zone
 
@@ -19,14 +19,17 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     entities = []
     for slot in range(5):
         entities.append(DepartureSensor(coordinator, config_entry, slot))
-        entities.append(DepartureMinutesSensor(coordinator, config_entry, slot))
         entities.append(DeparturePlatformSensor(coordinator, config_entry, slot))
 
     async_add_entities(entities)
 
 
 class DepartureSensor(PtvDepartureEntity, SensorEntity):
-    """Departure time — device_class: timestamp so HA renders 'in X min' natively."""
+    """Departure time — device_class: timestamp so HA renders 'in X min' natively.
+
+    Attributes surface whether the time is real-time or scheduled, and when
+    real-time is available, how many minutes early or late the service is.
+    """
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
 
@@ -40,7 +43,10 @@ class DepartureSensor(PtvDepartureEntity, SensorEntity):
 
     @property
     def native_value(self) -> datetime.datetime | None:
-        """Return the departure time as a timezone-aware datetime."""
+        """Return the best available departure time as a timezone-aware datetime.
+
+        Prefers estimated (real-time) over scheduled when available.
+        """
         dep = self._departure
         if dep is None:
             return None
@@ -57,42 +63,38 @@ class DepartureSensor(PtvDepartureEntity, SensorEntity):
         dep = self._departure
         if dep is None:
             return {}
-        return {
-            "stop_id": dep.get("stop_id"),
-            "route_id": dep.get("route_id"),
-            "run_id": dep.get("run_id"),
-            "run_ref": dep.get("run_ref"),
-            "direction_id": dep.get("direction_id"),
+
+        is_realtime = dep.get("estimated_departure_utc") is not None
+        attrs: dict = {
+            "is_realtime": is_realtime,
             "scheduled_departure_utc": dep.get("scheduled_departure_utc"),
             "estimated_departure_utc": dep.get("estimated_departure_utc"),
             "at_platform": dep.get("at_platform"),
             "departure_note": dep.get("departure_note"),
+            "stop_id": dep.get("stop_id"),
+            "route_id": dep.get("route_id"),
+            "run_ref": dep.get("run_ref"),
             "disruption_ids": dep.get("disruption_ids"),
             "attribution": ATTRIBUTION,
         }
 
+        # When real-time data is available compute delay so automations and
+        # dashboards can show "3 min late" / "2 min early" / "on time".
+        if is_realtime and dep.get("scheduled_departure_utc"):
+            try:
+                estimated = datetime.datetime.strptime(
+                    dep["estimated_departure_utc"], "%Y-%m-%dT%H:%M:%SZ"
+                )
+                scheduled = datetime.datetime.strptime(
+                    dep["scheduled_departure_utc"], "%Y-%m-%dT%H:%M:%SZ"
+                )
+                attrs["delay_minutes"] = int(
+                    (estimated - scheduled).total_seconds() / 60
+                )
+            except (ValueError, TypeError):
+                pass
 
-class DepartureMinutesSensor(PtvDepartureEntity, SensorEntity):
-    """Minutes until departure — numeric sensor useful for automations and graphs."""
-
-    _attr_native_unit_of_measurement = "min"
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_icon = "mdi:clock-outline"
-
-    @property
-    def unique_id(self) -> str:
-        return f"{self._config_entry.entry_id}_minutes_{self._slot}"
-
-    @property
-    def name(self) -> str:
-        return f"{self._device_label} {DEPARTURE_NAMES[self._slot]} minutes"
-
-    @property
-    def native_value(self) -> int | None:
-        dep = self._departure
-        if dep is None:
-            return None
-        return dep.get("minutes_until")
+        return attrs
 
 
 class DeparturePlatformSensor(PtvDepartureEntity, SensorEntity):

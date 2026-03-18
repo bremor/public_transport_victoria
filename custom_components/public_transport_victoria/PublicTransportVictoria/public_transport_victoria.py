@@ -310,7 +310,6 @@ class Connector:
                         effective_utc = r["estimated_departure_utc"] or r["scheduled_departure_utc"]
                         r["is_realtime"] = r["estimated_departure_utc"] is not None
                         r["departure"] = convert_utc_to_local(effective_utc, self.hass)
-                        r["minutes_until"] = minutes_until_departure(effective_utc)
                         r["is_express"] = run_info.get("express_stop_count", 0) > 0 if run_info else False
                         self.departures.append(r)
 
