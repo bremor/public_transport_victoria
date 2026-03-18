@@ -162,14 +162,10 @@ class Connector:
 
                     self.departures = []
                     for r, run_info in zip(departures, run_infos):
-                        if r["estimated_departure_utc"] is not None:
-                            r["departure"] = convert_utc_to_local(
-                                r["estimated_departure_utc"], self.hass
-                            )
-                        else:
-                            r["departure"] = convert_utc_to_local(
-                                r["scheduled_departure_utc"], self.hass
-                            )
+                        effective_utc = r["estimated_departure_utc"] or r["scheduled_departure_utc"]
+                        r["is_realtime"] = r["estimated_departure_utc"] is not None
+                        r["departure"] = convert_utc_to_local(effective_utc, self.hass)
+                        r["minutes_until"] = minutes_until_departure(effective_utc)
                         r["is_express"] = run_info.get("express_stop_count", 0) > 0 if run_info else False
                         self.departures.append(r)
 
@@ -188,6 +184,15 @@ class Connector:
                     if data.get("runs"):
                         return data["runs"][0]
         return None
+
+def minutes_until_departure(utc_str):
+    """Return whole minutes from now until the given UTC departure string."""
+    departure = datetime.datetime.strptime(utc_str, "%Y-%m-%dT%H:%M:%SZ").replace(
+        tzinfo=datetime.timezone.utc
+    )
+    delta = departure - datetime.datetime.now(datetime.timezone.utc)
+    return max(0, int(delta.total_seconds() // 60))
+
 
 def build_URL(id, api_key, request):
     request = request + ('&' if ('?' in request) else '?')
