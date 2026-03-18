@@ -6,7 +6,7 @@ from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.util.dt import get_time_zone
 
 from .const import ATTRIBUTION, DOMAIN
-from .entity import DEPARTURE_NAMES, PtvDepartureEntity
+from .entity import DEPARTURE_NAMES, PtvDepartureEntity, PtvEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -18,6 +18,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         DepartureSensor(coordinator, config_entry, slot)
         for slot in range(5)
     ]
+    entities.append(StopInfoSensor(coordinator, config_entry))
     async_add_entities(entities)
 
 
@@ -126,3 +127,41 @@ class DepartureSensor(PtvDepartureEntity, SensorEntity):
                 pass
 
         return attrs
+
+
+class StopInfoSensor(PtvEntity, SensorEntity):
+    """Static stop information — location, zone, amenities, accessibility.
+
+    State: zone string ("Zone 1", "Free Fare Zone") or the stop name as fallback.
+    Attributes: latitude/longitude (enables HA map card), plus every amenity
+    and accessibility field returned by the PTV stop-details endpoint.
+
+    Data is fetched once when the coordinator first runs and cached on the
+    entity; it re-fetches when HA restarts since this data rarely changes.
+    """
+
+    _attr_icon = "mdi:map-marker"
+    _stop_info_cache: dict | None = None
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._config_entry.entry_id}_stop_info"
+
+    @property
+    def name(self) -> str:
+        return f"{self._device_label} stop info"
+
+    @property
+    def native_value(self) -> str:
+        if self._stop_info_cache:
+            return self._stop_info_cache.get("zone") or self._connector.stop_name
+        return self._connector.stop_name
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return self._stop_info_cache or {}
+
+    async def async_update(self) -> None:
+        """Fetch stop info on first call; coordinator handles subsequent updates."""
+        if self._stop_info_cache is None:
+            self._stop_info_cache = await self._connector.async_stop_info()

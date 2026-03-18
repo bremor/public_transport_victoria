@@ -33,6 +33,7 @@ ROUTE_TYPES_PATH = "/v3/route_types"
 ROUTES_PATH = "/v3/routes?route_types={}"
 SEARCH_PATH = "/v3/search/{}?include_outlets=false&include_addresses=false"
 STOP_DETAILS_PATH = "/v3/stops/{}/route_type/{}?stop_location=false&stop_amenities=false&stop_accessibility=false&stop_contact=false&stop_ticket=false&gtfs=false&stop_staffing=false&stop_disruptions=false"
+STOP_INFO_PATH = "/v3/stops/{}/route_type/{}?stop_location=true&stop_amenities=true&stop_accessibility=true&stop_ticket=true&stop_contact=false&stop_staffing=false&gtfs=false&stop_disruptions=false"
 STOPS_PATH = "/v3/stops/route/{}/route_type/{}?direction_id={}"
 
 # Human-readable mode names for stop search results display
@@ -342,6 +343,88 @@ class Connector:
 
         for departure in self.departures:
             _LOGGER.debug(departure)
+
+    async def async_stop_info(self):
+        """Fetch static stop details: location, zone, amenities, accessibility.
+
+        Returns a dict of flattened attributes suitable for direct use as
+        entity extra_state_attributes.  Returns {} on any error.
+        """
+        if not self.stop or not self.route_type:
+            return {}
+
+        url = build_URL(
+            self.id, self.api_key,
+            STOP_INFO_PATH.format(self.stop, self.route_type),
+        )
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        _LOGGER.debug("Stop info API returned %s", response.status)
+                        return {}
+                    data = await response.json()
+        except Exception as err:
+            _LOGGER.warning("Failed to fetch stop info: %s", err)
+            return {}
+
+        stop = data.get("stop", {})
+        loc  = stop.get("stop_location", {}) or {}
+        gps  = loc.get("gps", {}) or {}
+        amen = stop.get("stop_amenities", {}) or {}
+        acc  = stop.get("stop_accessibility", {}) or {}
+        tick = stop.get("stop_ticket", {}) or {}
+
+        # Build zone label
+        zone_raw = tick.get("zone", "")
+        is_free  = tick.get("is_free_fare_zone", False)
+        if is_free:
+            zone = "Free Fare Zone"
+        elif zone_raw:
+            zone = f"Zone {zone_raw}" if not str(zone_raw).lower().startswith("zone") else zone_raw
+        else:
+            zone = None
+
+        attrs: dict = {}
+        if gps.get("latitude") is not None:
+            attrs["latitude"]  = gps["latitude"]
+            attrs["longitude"] = gps["longitude"]
+        if zone:
+            attrs["zone"] = zone
+        attrs["is_free_fare_zone"] = is_free
+
+        # Amenities (Metro/V-Line stations; absent for tram stops)
+        for key, label in [
+            ("car_parking",    "parking"),
+            ("toilet",         "toilets"),
+            ("shelter",        "shelter"),
+            ("bench",          "seating"),
+            ("lighting",       "lighting"),
+            ("taxi_rank",      "taxi_rank"),
+            ("bbq",            "bbq"),
+            ("food",           "food"),
+            ("wifi",           "wifi"),
+            ("cctv",           "cctv"),
+            ("ticket_machine", "ticket_machine"),
+        ]:
+            val = amen.get(key)
+            if val is not None:
+                attrs[label] = val
+
+        # Accessibility
+        for key, label in [
+            ("wheelchair_accessible",  "wheelchair_accessible"),
+            ("lift",                   "lift"),
+            ("escalator",              "escalator"),
+            ("hearing_loop",           "hearing_loop"),
+            ("accessible_ramp",        "accessible_ramp"),
+            ("accessible_parking",     "accessible_parking"),
+        ]:
+            val = acc.get(key)
+            if val is not None:
+                attrs[label] = val
+
+        return attrs
 
     async def async_disruptions(self, route_id):
         """Fetch active disruptions for the route from the PTV API.
