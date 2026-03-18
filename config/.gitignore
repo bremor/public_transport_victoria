@@ -1,0 +1,4 @@
+# Ignore all HA runtime files, keep only our configuration
+*
+!.gitignore
+!configuration.yaml

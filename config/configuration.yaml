@@ -1,0 +1,11 @@
+# Home Assistant configuration for local development/testing
+# Loads the public_transport_victoria custom component
+default_config:
+
+homeassistant:
+  name: PTV Test
+  latitude: -37.8136
+  longitude: 144.9631
+  elevation: 31
+  unit_system: metric
+  time_zone: Australia/Melbourne

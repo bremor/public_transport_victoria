@@ -1,0 +1,12 @@
+services:
+  homeassistant:
+    container_name: ha-ptv-test
+    image: ghcr.io/home-assistant/home-assistant:stable
+    volumes:
+      - ./config:/config
+      - ./custom_components:/config/custom_components:ro
+    ports:
+      - "8123:8123"
+    restart: unless-stopped
+    environment:
+      - TZ=Australia/Melbourne
