@@ -21,11 +21,40 @@ class CannotConnect(Exception):
 BASE_URL = "https://timetableapi.ptv.vic.gov.au"
 DEPARTURES_PATH = "/v3/departures/route_type/{}/stop/{}/route/{}?direction_id={}&max_results={}"
 DIRECTIONS_PATH = "/v3/directions/route/{}"
+DISRUPTIONS_PATH = "/v3/disruptions/route/{}"
 MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(minutes=2)
 MAX_RESULTS = 5
 ROUTE_TYPES_PATH = "/v3/route_types"
 ROUTES_PATH = "/v3/routes?route_types={}"
 STOPS_PATH = "/v3/stops/route/{}/route_type/{}?direction_id={}"
+
+# Maps disruption_type substrings (case-insensitive) to a severity tier.
+# First match wins — more specific strings should come first.
+_SEVERITY_MAP = [
+    ("suspension",       "severe"),
+    ("suspended",        "severe"),
+    ("replacement bus",  "severe"),
+    ("bus replacement",  "severe"),
+    ("tram replacement", "severe"),
+    ("major disruption", "severe"),
+    ("planned works",    "moderate"),
+    ("major delay",      "moderate"),
+    ("disruption",       "moderate"),
+    ("reduced frequency","moderate"),
+    ("stop closed",      "minor"),
+    ("minor delay",      "minor"),
+    ("elevator",         "minor"),
+    ("escalator",        "minor"),
+    ("information",      "minor"),
+]
+
+def _classify_severity(disruption_type: str) -> str:
+    """Return 'severe', 'moderate', or 'minor' based on disruption_type text."""
+    lower = disruption_type.lower()
+    for keyword, severity in _SEVERITY_MAP:
+        if keyword in lower:
+            return severity
+    return "moderate"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,6 +79,7 @@ class Connector:
         self.direction_name = direction_name
         self.stop_name = stop_name
         self.departures = []
+        self.disruptions = []
 
     async def _init(self):
         """Async Init Public Transport Victoria connector."""
@@ -160,7 +190,7 @@ class Connector:
                     _LOGGER.debug(data)
                     stops = {
                         str(r["stop_id"]): r["stop_name"]
-                        for r in sorted(data["stops"], key=lambda s: s["stop_name"])
+                        for r in sorted(data["stops"], key=lambda s: s.get("stop_sequence", 0))
                     }
                     self.route = route
                     return stops
@@ -177,9 +207,13 @@ class Connector:
                     _LOGGER.debug(data)
                     departures = data["departures"]
 
-                    run_infos = await asyncio.gather(
-                        *[self.async_run(r["run_id"]) for r in departures]
+                    # Fetch run info for all departures AND route disruptions concurrently
+                    results = await asyncio.gather(
+                        *[self.async_run(r["run_id"]) for r in departures],
+                        self.async_disruptions(self.route),
                     )
+                    run_infos = results[:-1]
+                    self.disruptions = results[-1]
 
                     self.departures = []
                     for r, run_info in zip(departures, run_infos):
@@ -205,6 +239,42 @@ class Connector:
                     if data.get("runs"):
                         return data["runs"][0]
         return None
+
+    async def async_disruptions(self, route_id):
+        """Fetch active disruptions for the route from the PTV API.
+
+        Returns a list of disruption dicts with resolved title, description,
+        type, severity, url, and date range. Returns [] on any error so a
+        failed disruption call never breaks departure updates.
+        """
+        url = build_URL(self.id, self.api_key, DISRUPTIONS_PATH.format(route_id))
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        _LOGGER.debug("Disruptions API returned %s", response.status)
+                        return []
+                    data = await response.json()
+                    _LOGGER.debug(data)
+                    disruptions = []
+                    for d in data.get("disruptions", []):
+                        disruptions.append({
+                            "disruption_id": d.get("disruption_id"),
+                            "title": d.get("title", ""),
+                            "description": d.get("description", ""),
+                            "disruption_type": d.get("disruption_type", ""),
+                            "disruption_status": d.get("disruption_status", ""),
+                            "severity": _classify_severity(d.get("disruption_type", "")),
+                            "url": d.get("url", ""),
+                            "from_date": d.get("from_date"),
+                            "to_date": d.get("to_date"),
+                        })
+                    return disruptions
+        except Exception as err:
+            _LOGGER.warning("Failed to fetch disruptions for route %s: %s", route_id, err)
+            return []
+
 
 def minutes_until_departure(utc_str):
     """Return whole minutes from now until the given UTC departure string."""
