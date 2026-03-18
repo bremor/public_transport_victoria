@@ -1,96 +1,116 @@
-"""Platform for sensor integration."""
-
+"""Sensor platform for Public Transport Victoria."""
 import datetime
 import logging
 
-from homeassistant.helpers.entity import Entity
-from homeassistant.helpers.update_coordinator import (
-    DataUpdateCoordinator,
-    CoordinatorEntity,
-)
-from homeassistant.const import ATTR_ATTRIBUTION
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
+from homeassistant.util.dt import get_time_zone
+
 from .const import ATTRIBUTION, DOMAIN
+from .entity import DEPARTURE_NAMES, PtvDepartureEntity
 
 _LOGGER = logging.getLogger(__name__)
-SCAN_INTERVAL = datetime.timedelta(minutes=10)
+
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
-    """Add sensors for passed config_entry in HA."""
-    connector = hass.data[DOMAIN][config_entry.entry_id]
+    """Set up departure sensors for a config entry."""
+    coordinator = hass.data[DOMAIN][config_entry.entry_id]["coordinator"]
 
-    # Create the coordinator to manage polling
-    coordinator = PublicTransportVictoriaDataUpdateCoordinator(hass, connector)
+    entities = []
+    for slot in range(5):
+        entities.append(DepartureSensor(coordinator, config_entry, slot))
+        entities.append(DepartureMinutesSensor(coordinator, config_entry, slot))
+        entities.append(DeparturePlatformSensor(coordinator, config_entry, slot))
 
-    # Fetch initial data
-    await coordinator.async_config_entry_first_refresh()
-
-    # Create sensors for the first 5 departures
-    new_devices = [PublicTransportVictoriaSensor(coordinator, i) for i in range(5)]
-
-    async_add_entities(new_devices)
+    async_add_entities(entities)
 
 
-class PublicTransportVictoriaDataUpdateCoordinator(DataUpdateCoordinator):
-    """Class to manage fetching Public Transport Victoria data."""
+class DepartureSensor(PtvDepartureEntity, SensorEntity):
+    """Departure time — device_class: timestamp so HA renders 'in X min' natively."""
 
-    def __init__(self, hass, connector):
-        """Initialize the coordinator."""
-        self.connector = connector
-        super().__init__(
-            hass,
-            _LOGGER,
-            name="Public Transport Victoria",
-            update_interval=SCAN_INTERVAL,
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._config_entry.entry_id}_departure_{self._slot}"
+
+    @property
+    def name(self) -> str:
+        return f"{self._connector.route_name} · {self._connector.stop_name} {DEPARTURE_NAMES[self._slot]}"
+
+    @property
+    def native_value(self) -> datetime.datetime | None:
+        """Return the departure time as a timezone-aware datetime."""
+        dep = self._departure
+        if dep is None:
+            return None
+        utc_str = dep.get("estimated_departure_utc") or dep.get("scheduled_departure_utc")
+        if not utc_str:
+            return None
+        dt = datetime.datetime.strptime(utc_str, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=datetime.timezone.utc
         )
-
-    async def _async_update_data(self):
-        """Fetch data from Public Transport Victoria."""
-        _LOGGER.debug("Fetching new data from Public Transport Victoria API.")
-        await self.connector.async_update()
-        return self.connector.departures  # Return the latest data
-
-
-class PublicTransportVictoriaSensor(CoordinatorEntity, Entity):
-    """Representation of a Public Transport Victoria Sensor."""
-
-    def __init__(self, coordinator, number):
-        """Initialize the sensor."""
-        super().__init__(coordinator)
-        self._number = number
-        self._connector = coordinator.connector
+        return dt.astimezone(get_time_zone(self.hass.config.time_zone))
 
     @property
-    def state(self):
-        """Return the state of the sensor."""
-        if len(self.coordinator.data) > self._number:
-            return self.coordinator.data[self._number].get("departure", "No data")
-        return "No data"
+    def extra_state_attributes(self) -> dict:
+        dep = self._departure
+        if dep is None:
+            return {}
+        return {
+            "stop_id": dep.get("stop_id"),
+            "route_id": dep.get("route_id"),
+            "run_id": dep.get("run_id"),
+            "run_ref": dep.get("run_ref"),
+            "direction_id": dep.get("direction_id"),
+            "scheduled_departure_utc": dep.get("scheduled_departure_utc"),
+            "estimated_departure_utc": dep.get("estimated_departure_utc"),
+            "at_platform": dep.get("at_platform"),
+            "departure_note": dep.get("departure_note"),
+            "disruption_ids": dep.get("disruption_ids"),
+            "attribution": ATTRIBUTION,
+        }
+
+
+class DepartureMinutesSensor(PtvDepartureEntity, SensorEntity):
+    """Minutes until departure — numeric sensor useful for automations and graphs."""
+
+    _attr_native_unit_of_measurement = "min"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:clock-outline"
 
     @property
-    def name(self):
-        """Return the name of the sensor."""
-        return "{} line to {} from {} {}".format(
-            self._connector.route_name,
-            self._connector.direction_name,
-            self._connector.stop_name,
-            self._number,
-        )
+    def unique_id(self) -> str:
+        return f"{self._config_entry.entry_id}_minutes_{self._slot}"
 
     @property
-    def unique_id(self):
-        """Return Unique ID string."""
-        return "{} line to {} from {} {}".format(
-            self._connector.route_name,
-            self._connector.direction_name,
-            self._connector.stop_name,
-            self._number,
-        )
+    def name(self) -> str:
+        return f"{self._connector.route_name} · {self._connector.stop_name} {DEPARTURE_NAMES[self._slot]} minutes"
 
     @property
-    def extra_state_attributes(self):
-        """Return the state attributes of the sensor."""
-        if len(self.coordinator.data) > self._number:
-            attr = self.coordinator.data[self._number]
-            attr[ATTR_ATTRIBUTION] = ATTRIBUTION
-            return attr
-        return {}
+    def native_value(self) -> int | None:
+        dep = self._departure
+        if dep is None:
+            return None
+        return dep.get("minutes_until")
+
+
+class DeparturePlatformSensor(PtvDepartureEntity, SensorEntity):
+    """Platform number for a departure."""
+
+    _attr_icon = "mdi:sign-direction"
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._config_entry.entry_id}_platform_{self._slot}"
+
+    @property
+    def name(self) -> str:
+        return f"{self._connector.route_name} · {self._connector.stop_name} {DEPARTURE_NAMES[self._slot]} platform"
+
+    @property
+    def native_value(self) -> str | None:
+        dep = self._departure
+        if dep is None:
+            return None
+        platform = dep.get("platform_number")
+        return str(platform) if platform is not None else None

@@ -2,7 +2,6 @@
 import asyncio
 import logging
 
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_API_KEY, CONF_ID
 from homeassistant.core import HomeAssistant
@@ -11,20 +10,17 @@ from .const import (
     CONF_DIRECTION, CONF_DIRECTION_NAME, CONF_ROUTE, CONF_ROUTE_NAME,
     CONF_ROUTE_TYPE, CONF_ROUTE_TYPE_NAME, CONF_STOP, CONF_STOP_NAME, DOMAIN
 )
+from .coordinator import PtvDataUpdateCoordinator
 from .PublicTransportVictoria.public_transport_victoria import Connector
 
-
-# Define the logger
 _LOGGER = logging.getLogger(__name__)
 
-
-PLATFORMS = ["sensor"]
+PLATFORMS = ["sensor", "binary_sensor"]
 
 
 async def async_setup(hass: HomeAssistant, config: dict):
     """Set up the Public Transport Victoria component."""
     hass.data.setdefault(DOMAIN, {})
-
     return True
 
 
@@ -43,11 +39,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.data[CONF_DIRECTION_NAME],
         entry.data[CONF_STOP_NAME],
     )
+    # _init() calls async_update() to pre-populate connector.departures
     await connector._init()
 
-    hass.data[DOMAIN][entry.entry_id] = connector
+    coordinator = PtvDataUpdateCoordinator(hass, connector)
+    # First refresh re-uses data already fetched by _init() (throttle prevents double call)
+    await coordinator.async_config_entry_first_refresh()
 
-    # Use the new async_forward_entry_setups method
+    hass.data[DOMAIN][entry.entry_id] = {
+        "connector": connector,
+        "coordinator": coordinator,
+    }
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
