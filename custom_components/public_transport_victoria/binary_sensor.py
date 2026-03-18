@@ -110,12 +110,11 @@ class RouteDisruptedBinarySensor(PtvEntity, BinarySensorEntity):
             "disruptions": [
                 {
                     "title": d.get("title", ""),
-                    "description": d.get("description", ""),
                     "type": d.get("disruption_type", ""),
                     "severity": d.get("severity", ""),
-                    "url": d.get("url", ""),
                     "from": d.get("from_date"),
                     "to": d.get("to_date"),
+                    "url": d.get("url", ""),
                 }
                 for d in disruptions
             ],

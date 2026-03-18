@@ -369,7 +369,6 @@ class Connector:
                         disruptions.append({
                             "disruption_id": d.get("disruption_id"),
                             "title": d.get("title", ""),
-                            "description": d.get("description", ""),
                             "disruption_type": d.get("disruption_type", ""),
                             "disruption_status": d.get("disruption_status", ""),
                             "severity": _classify_severity(d.get("disruption_type", "")),
