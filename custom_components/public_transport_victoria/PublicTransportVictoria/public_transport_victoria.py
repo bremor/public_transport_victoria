@@ -10,6 +10,14 @@ from homeassistant.util import Throttle
 from homeassistant.util.dt import get_time_zone
 
 
+class InvalidAuth(Exception):
+    """Raised when the PTV API rejects the Developer ID or Key."""
+
+
+class CannotConnect(Exception):
+    """Raised when the PTV API cannot be reached."""
+
+
 BASE_URL = "https://timetableapi.ptv.vic.gov.au"
 DEPARTURES_PATH = "/v3/departures/route_type/{}/stop/{}/route/{}?direction_id={}&max_results={}"
 DIRECTIONS_PATH = "/v3/directions/route/{}"
@@ -51,18 +59,36 @@ class Connector:
         await self.async_update()
 
     async def async_route_types(self):
-        """Get route types from Public Transport Victoria API."""
+        """Get route types from Public Transport Victoria API.
+
+        Returns a dict of route_type_id -> route_type_name on success.
+        Raises InvalidAuth if credentials are rejected by the API.
+        Raises CannotConnect on network or unexpected errors.
+        """
         url = build_URL(self.id, self.api_key, ROUTE_TYPES_PATH)
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as response:
-                if response.status == 200:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    if response.status == 401:
+                        raise InvalidAuth("API returned 401 Unauthorized")
+                    if response.status != 200:
+                        raise CannotConnect(f"API returned status {response.status}")
                     data = await response.json()
                     _LOGGER.debug(data)
+                    # health != 1 means the API rejected the request (bad credentials)
+                    if data.get("health") != 1:
+                        raise InvalidAuth(
+                            f"API health check failed (health={data.get('health')})"
+                        )
                     route_types = {}
                     for r in data["route_types"]:
                         route_types[str(r["route_type"])] = r["route_type_name"]
+                    if not route_types:
+                        raise InvalidAuth("No route types returned — check Developer ID and Key")
                     return route_types
+        except (aiohttp.ClientError, TimeoutError) as err:
+            raise CannotConnect(str(err)) from err
 
     async def async_routes(self, route_type):
         """Get routes from Public Transport Victoria API."""
