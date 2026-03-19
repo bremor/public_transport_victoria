@@ -1,17 +1,8 @@
-"""Base entity classes shared across sensor and binary_sensor platforms."""
+"""Base entity classes shared across sensor, binary_sensor and device_tracker."""
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-
-# Human-readable slot names used as part of entity names
-DEPARTURE_NAMES = [
-    "next departure",
-    "2nd departure",
-    "3rd departure",
-    "4th departure",
-    "5th departure",
-]
 
 
 class PtvEntity(CoordinatorEntity):
@@ -35,8 +26,6 @@ class PtvEntity(CoordinatorEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        # When no route filter is set, the device is just the stop.
-        # When a route is configured, show "Route · Stop" for clarity.
         if self._connector.route_name:
             device_name = f"{self._connector.route_name} · {self._connector.stop_name}"
         else:
@@ -48,23 +37,3 @@ class PtvEntity(CoordinatorEntity):
             manufacturer="Public Transport Victoria",
             model=self._connector.route_type_name or self._connector.route_type,
         )
-
-
-class PtvDepartureEntity(PtvEntity):
-    """Base class for per-departure-slot entities (slots 0–4)."""
-
-    def __init__(self, coordinator, config_entry, slot: int):
-        super().__init__(coordinator, config_entry)
-        self._slot = slot
-
-    @property
-    def _departure(self) -> dict | None:
-        """Return the departure dict for this slot, or None if unavailable."""
-        data = self.coordinator.data
-        if data and len(data) > self._slot:
-            return data[self._slot]
-        return None
-
-    @property
-    def available(self) -> bool:
-        return self._departure is not None
