@@ -8,7 +8,6 @@ from homeassistant.const import CONF_API_KEY, CONF_ID
 from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
-    NumberSelectorMode,
     SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
@@ -370,9 +369,15 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             self.data[CONF_ID],
             self.data[CONF_API_KEY],
         )
-        self._routes = await self.connector.async_routes(
-            self.data[CONF_ROUTE_TYPE], stop_id=self.data.get(CONF_STOP)
-        )
+        try:
+            self._routes = await self.connector.async_routes(
+                self.data[CONF_ROUTE_TYPE], stop_id=self.data.get(CONF_STOP)
+            )
+        except CannotConnect:
+            self._routes = {}
+        except Exception:
+            _LOGGER.exception("Unexpected error loading routes in options flow")
+            self._routes = {}
         return await self.async_step_filters()
 
     async def async_step_filters(self, user_input=None):
@@ -398,9 +403,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_MAX_TRACKERS,
                     default=current_max_trackers,
                 ): NumberSelector(
-                    NumberSelectorConfig(
-                        min=0, max=20, step=1, mode=NumberSelectorMode.BOX
-                    )
+                    NumberSelectorConfig(min=0, max=20, step=1, mode="box")
                 ),
             }
         )
