@@ -142,10 +142,14 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         """
         departures = coordinator.data or []
 
-        # Collect unique platform keys in first-seen order, capped at _MAX_PLATFORMS
+        # Collect unique platform keys in first-seen order, capped at _MAX_PLATFORMS.
+        # Skip departures with no platform number — they get no entity.
         seen_platforms: list[str] = []
         for dep in departures:
-            p = str(dep.get("platform_number") or "unknown")
+            p = dep.get("platform_number")
+            if not p:
+                continue
+            p = str(p)
             if p not in seen_platforms:
                 seen_platforms.append(p)
             if len(seen_platforms) >= _MAX_PLATFORMS:
@@ -210,9 +214,18 @@ class PlatformDepartureSensor(PtvEntity, SensorEntity):
 
     @property
     def name(self) -> str:
-        p = self._platform_key
-        prefix = "Platform unknown" if p == "unknown" else f"Platform {p}"
-        return f"{prefix} {self._SLOT_LABELS[self._slot]}"
+        """Dynamic friendly name — updates each poll to reflect current destination.
+
+        Format: "Platform 1 to Upfield · next"
+        Falls back to "Platform 1 · next" when destination isn't yet known.
+        The entity_id is fixed at first registration; only the friendly name changes.
+        """
+        dep = self._departure
+        destination = dep.get("destination_name", "") if dep else ""
+        prefix = f"Platform {self._platform_key}"
+        if destination:
+            prefix = f"{prefix} to {destination}"
+        return f"{prefix} · {self._SLOT_LABELS[self._slot]}"
 
     @property
     def available(self) -> bool:
@@ -224,7 +237,7 @@ class PlatformDepartureSensor(PtvEntity, SensorEntity):
         departures = self.coordinator.data or []
         platform_deps = [
             d for d in departures
-            if str(d.get("platform_number") or "unknown") == self._platform_key
+            if str(d.get("platform_number") or "") == self._platform_key
         ]
         return platform_deps[self._slot] if len(platform_deps) > self._slot else None
 
