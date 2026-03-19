@@ -352,8 +352,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     """
 
     def __init__(self, config_entry):
-        """Initialise the options flow."""
-        self.config_entry = config_entry
+        """Initialise the options flow.
+
+        NOTE: do NOT set self.config_entry here — HA 2024+ defines it as a
+        @property on OptionsFlow and will raise AttributeError (→ 500) if we
+        try to override it with an instance attribute.  Populate instance state
+        from the passed config_entry directly instead.
+        """
         self.data = dict(config_entry.data)
         self.connector = None
         self._routes = {}
