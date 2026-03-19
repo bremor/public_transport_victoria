@@ -199,7 +199,7 @@ class PlatformDepartureSensor(PtvEntity, SensorEntity):
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
 
-    _SLOT_LABELS = ["next", "following 1", "following 2", "following 3", "following 4"]
+    _SLOT_LABELS = ["next", "next 1", "next 2", "next 3", "next 4"]
 
     def __init__(self, coordinator, config_entry, platform_key: str, slot: int):
         super().__init__(coordinator, config_entry)

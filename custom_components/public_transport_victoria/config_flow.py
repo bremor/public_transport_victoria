@@ -6,6 +6,9 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_API_KEY, CONF_ID
 from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
     SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
@@ -16,12 +19,14 @@ from .const import (
     CONF_DIRECTION,
     CONF_DIRECTION_NAME,
     CONF_FILTER_EXPRESS,
+    CONF_MAX_TRACKERS,
     CONF_ROUTE,
     CONF_ROUTE_NAME,
     CONF_ROUTE_TYPE,
     CONF_ROUTE_TYPE_NAME,
     CONF_STOP,
     CONF_STOP_NAME,
+    DEFAULT_MAX_TRACKERS,
     DOMAIN,
 )
 from .PublicTransportVictoria.public_transport_victoria import (
@@ -356,6 +361,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self.connector = None
         self._routes = {}
         self._directions = {}
+        self._options: dict = dict(config_entry.options)
 
     async def async_step_init(self, user_input=None):
         """Bootstrap: create a temporary Connector and load routes."""
@@ -375,6 +381,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if current_route not in self._routes:
             current_route = _ALL
 
+        current_max_trackers = self.config_entry.options.get(
+            CONF_MAX_TRACKERS, DEFAULT_MAX_TRACKERS
+        )
+
         data_schema = vol.Schema(
             {
                 vol.Required(CONF_ROUTE, default=current_route): _select(
@@ -384,6 +394,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_FILTER_EXPRESS,
                     default=self.data.get(CONF_FILTER_EXPRESS, False),
                 ): bool,
+                vol.Required(
+                    CONF_MAX_TRACKERS,
+                    default=current_max_trackers,
+                ): NumberSelector(
+                    NumberSelectorConfig(
+                        min=0, max=20, step=1, mode=NumberSelectorMode.BOX
+                    )
+                ),
             }
         )
 
@@ -391,6 +409,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             route = user_input[CONF_ROUTE]
             self.data[CONF_FILTER_EXPRESS] = user_input[CONF_FILTER_EXPRESS]
+            # max_trackers lives in options (not data) so it doesn't affect the Connector
+            self._options = {
+                CONF_MAX_TRACKERS: int(user_input[CONF_MAX_TRACKERS]),
+            }
 
             # Clear old route/direction values so stale data doesn't linger
             self.data.pop(CONF_ROUTE, None)
@@ -442,8 +464,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         )
 
     def _save_and_finish(self):
-        """Persist updated data back into the config entry and trigger reload."""
+        """Persist updated data + options back into the config entry and trigger reload."""
         self.hass.config_entries.async_update_entry(
-            self.config_entry, data=self.data
+            self.config_entry, data=self.data, options=self._options
         )
         return self.async_create_entry(title="", data={})

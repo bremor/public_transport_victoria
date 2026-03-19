@@ -72,7 +72,8 @@
                 "description": "Change which route and direction are tracked from this stop.",
                 "data": {
                     "route": "Route",
-                    "filter_express": "Express services only"
+                    "filter_express": "Express services only",
+                    "max_trackers": "Max vehicle trackers (0 = disabled)"
                 }
             },
             "filter_direction": {
