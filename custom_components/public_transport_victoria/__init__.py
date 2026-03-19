@@ -16,7 +16,7 @@ from .PublicTransportVictoria.public_transport_victoria import Connector
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["sensor", "binary_sensor"]
+PLATFORMS = ["sensor", "binary_sensor", "device_tracker"]
 
 
 async def async_setup(hass: HomeAssistant, config: dict):
