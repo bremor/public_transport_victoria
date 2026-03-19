@@ -37,6 +37,13 @@
                     "stop": "Stop"
                 }
             },
+            "setup_mode": {
+                "title": "How do you want to monitor this stop?",
+                "description": "\"All departures\" shows every service from this stop across all routes and directions. Choose \"Filter\" to narrow down to a specific route.",
+                "data": {
+                    "mode": "Monitoring mode"
+                }
+            },
             "filters": {
                 "title": "Filter departures (optional)",
                 "description": "Leave on \"All routes\" to see every service from this stop.",

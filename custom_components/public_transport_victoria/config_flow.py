@@ -205,23 +205,57 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             m = self._stop_meta[key]
             self.data[CONF_STOP] = m["stop_id"]
             self.data[CONF_STOP_NAME] = m["stop_name"]
-            # route_type is already in self.data from step 2; keep for completeness
             self.data[CONF_ROUTE_TYPE] = m["route_type"]
             self.data[CONF_ROUTE_TYPE_NAME] = m["route_type_name"]
+            return await self.async_step_setup_mode()
 
+        return self.async_show_form(
+            step_id="stop_results", data_schema=data_schema, errors=errors
+        )
+
+    # ------------------------------------------------------------------
+    # Step 4b — choose monitoring mode
+    # ------------------------------------------------------------------
+
+    async def async_step_setup_mode(self, user_input=None):
+        """Choose between stop-based (all departures) and route-filtered monitoring.
+
+        Stop-based: creates the entry immediately — all routes and directions from
+        this stop will appear as departure sensors.
+
+        Route-filtered: proceeds to the route + direction selection steps.
+        """
+        data_schema = vol.Schema(
+            {
+                vol.Required("mode", default="all"): SelectSelector(
+                    SelectSelectorConfig(
+                        options=[
+                            SelectOptionDict(value="all", label="All departures from this stop"),
+                            SelectOptionDict(value="route", label="Filter by route and direction"),
+                        ],
+                        mode=SelectSelectorMode.LIST,
+                    )
+                ),
+            }
+        )
+
+        errors = {}
+        if user_input is not None:
+            if user_input["mode"] == "all":
+                return self._create_entry()
             try:
                 self._routes = await self.connector.async_routes(
-                    m["route_type"], stop_id=m["stop_id"]
+                    self.data[CONF_ROUTE_TYPE], stop_id=self.data[CONF_STOP]
                 )
                 return await self.async_step_filters()
             except CannotConnect:
                 errors["base"] = "cannot_connect"
             except Exception:
-                _LOGGER.exception("Unexpected exception loading routes")
+                _LOGGER.exception("Unexpected exception loading routes for filter step")
                 errors["base"] = "unknown"
 
         return self.async_show_form(
-            step_id="stop_results", data_schema=data_schema, errors=errors
+            step_id="setup_mode", data_schema=data_schema, errors=errors
         )
 
     # ------------------------------------------------------------------
