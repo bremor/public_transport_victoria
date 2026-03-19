@@ -140,13 +140,12 @@ class PtvVehicleTracker(PtvEntity, TrackerEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """All trackers for this entry share one device, linked to the stop device."""
+        """All tracked vehicles across all entries share a single global device."""
         return DeviceInfo(
-            identifiers={(DOMAIN, f"{self._config_entry.entry_id}_vehicles")},
-            name=f"{self._device_label} vehicles",
+            identifiers={(DOMAIN, "vehicles")},
+            name="PTV Vehicle Tracker",
             manufacturer="Public Transport Victoria",
-            model=self._connector.route_type_name or "Vehicles",
-            via_device=(DOMAIN, self._config_entry.entry_id),
+            model="GPS Tracker",
         )
 
     # ------------------------------------------------------------------
