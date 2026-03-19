@@ -73,6 +73,7 @@ class DepartureSensor(PtvDepartureEntity, SensorEntity):
 
         is_realtime = dep.get("estimated_departure_utc") is not None
         attrs: dict = {
+            "cancelled": dep.get("cancelled", False),
             "is_realtime": is_realtime,
             "is_express": dep.get("is_express", False),
             "destination": dep.get("destination_name", ""),

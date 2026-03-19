@@ -71,6 +71,8 @@ class PtvVehicleTracker(PtvEntity, TrackerEntity):
         self._is_express: bool = False
         self._vehicle_description: str | None = None
         self._last_seen: datetime.datetime | None = None
+        # Seed immediately so the entity is available as soon as it's registered
+        self._update_from_departures(coordinator.data or [])
 
     @property
     def unique_id(self) -> str:
@@ -114,10 +116,8 @@ class PtvVehicleTracker(PtvEntity, TrackerEntity):
             attrs["is_express"] = True
         return attrs
 
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Refresh position and metadata from the latest coordinator data."""
-        departures = self.coordinator.data or []
+    def _update_from_departures(self, departures: list) -> None:
+        """Parse position and metadata from a departures list."""
         for dep in departures:
             if dep.get("run_ref") != self._run_ref:
                 continue
@@ -135,4 +135,9 @@ class PtvVehicleTracker(PtvEntity, TrackerEntity):
                 self._vehicle_description = desc
             break
         # run_ref not found → still in linger window or about to go unavailable
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Refresh position and metadata from the latest coordinator data."""
+        self._update_from_departures(self.coordinator.data or [])
         self.async_write_ha_state()

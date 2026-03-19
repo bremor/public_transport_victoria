@@ -25,7 +25,7 @@ DEPARTURES_ROUTE_STOP_PATH = "/v3/departures/route_type/{}/stop/{}/route/{}?max_
 DEPARTURES_STOP_PATH = "/v3/departures/route_type/{}/stop/{}?max_results={}"
 # Appended to runtime departures paths to get run/vehicle data inline,
 # eliminating the need for separate per-departure run API calls.
-_DEPARTURES_EXPAND = "&expand=Run&expand=VehicleDescriptor&expand=VehiclePosition"
+_DEPARTURES_EXPAND = "&expand=Run&expand=VehicleDescriptor&expand=VehiclePosition&include_cancelled=true"
 DIRECTIONS_PATH = "/v3/directions/route/{}"
 DISRUPTIONS_PATH = "/v3/disruptions/route/{}"
 DISRUPTIONS_STOP_PATH = "/v3/disruptions/stop/{}"
@@ -346,6 +346,7 @@ class Connector:
 
             r["destination_name"] = run_info.get("destination_name", "")
             r["is_express"] = run_info.get("express_stop_count", 0) > 0
+            r["cancelled"] = run_info.get("run_status", "").lower() == "cancelled"
 
             # Vehicle descriptor: nested in run object takes priority over top-level dict
             vd = run_info.get("vehicle_descriptor") or vd_map.get(run_key) or {}
