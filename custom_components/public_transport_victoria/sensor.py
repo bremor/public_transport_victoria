@@ -10,7 +10,10 @@ from .entity import PtvEntity
 
 _LOGGER = logging.getLogger(__name__)
 
-_TRAIN_ROUTE_TYPE = "0"
+# Route types that have platform numbers and should use PlatformDepartureSensor.
+# Trains (0) and V/Line (3) both allocate platform numbers at stations.
+# Trams (1), Bus (2), Night Bus (4) use stop IDs rather than platforms.
+_PLATFORM_ROUTE_TYPES = {"0", "3"}
 _MAX_PLATFORMS = 10
 _SLOTS = 5
 
@@ -130,7 +133,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     coordinator = data["coordinator"]
     connector   = data["connector"]
 
-    is_train = str(connector.route_type) == _TRAIN_ROUTE_TYPE
+    is_train = str(connector.route_type) in _PLATFORM_ROUTE_TYPES
     known_keys: set[tuple[str, int]] = set()
 
     def _check_for_new_platform_sensors() -> None:
@@ -281,15 +284,15 @@ class SlotDepartureSensor(PtvEntity, SensorEntity):
 
     @property
     def name(self) -> str:
+        """Dynamic friendly name using current destination.
+
+        Format: "Towards Flinders Street · next"
+        Falls back to "{device_label} · next" when destination isn't yet known.
+        """
         dep = self._departure
-        if dep:
-            destination = dep.get("destination_name", "")
-            platform    = dep.get("platform_number")
-            if destination and platform is not None:
-                return f"{self._device_label} platform {platform} to {destination}"
-            if destination:
-                return f"{self._device_label} to {destination}"
-        return f"{self._device_label} {self._SLOT_LABELS[self._slot]}"
+        destination = dep.get("destination_name", "") if dep else ""
+        prefix = f"Towards {destination}" if destination else self._device_label
+        return f"{prefix} · {self._SLOT_LABELS[self._slot]}"
 
     @property
     def _departure(self) -> dict | None:
