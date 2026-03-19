@@ -6,8 +6,6 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_API_KEY, CONF_ID
 from homeassistant.helpers.selector import (
-    NumberSelector,
-    NumberSelectorConfig,
     SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
@@ -402,9 +400,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required(
                     CONF_MAX_TRACKERS,
                     default=current_max_trackers,
-                ): NumberSelector(
-                    NumberSelectorConfig(min=0, max=20, step=1, mode="box")
-                ),
+                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=20)),
             }
         )
 

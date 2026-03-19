@@ -202,7 +202,10 @@ class PlatformDepartureSensor(PtvEntity, SensorEntity):
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
 
-    _SLOT_LABELS = ["next", "next 1", "next 2", "next 3", "next 4"]
+    # Slot labels always include the slot number so entity_ids are predictable:
+    # "Platform 1 · next 0" → sensor.platform_1_next_0
+    # "Platform 1 · next 1" → sensor.platform_1_next_1, etc.
+    _SLOT_LABELS = ["next 0", "next 1", "next 2", "next 3", "next 4"]
 
     def __init__(self, coordinator, config_entry, platform_key: str, slot: int):
         super().__init__(coordinator, config_entry)
@@ -219,16 +222,16 @@ class PlatformDepartureSensor(PtvEntity, SensorEntity):
     def name(self) -> str:
         """Dynamic friendly name — updates each poll to reflect current destination.
 
-        Format: "Platform 1 to Upfield · next"
-        Falls back to "Platform 1 · next" when destination isn't yet known.
+        Format: "Platform 1 to Upfield · next 0"
+        Falls back to "Platform 1 · next 0" when destination isn't yet known.
         The entity_id is fixed at first registration; only the friendly name changes.
         """
         dep = self._departure
         destination = dep.get("destination_name", "") if dep else ""
-        prefix = f"Platform {self._platform_key}"
+        label = self._SLOT_LABELS[self._slot]
         if destination:
-            prefix = f"{prefix} to {destination}"
-        return f"{prefix} · {self._SLOT_LABELS[self._slot]}"
+            return f"Platform {self._platform_key} to {destination} · {label}"
+        return f"Platform {self._platform_key} · {label}"
 
     @property
     def available(self) -> bool:
@@ -287,12 +290,15 @@ class SlotDepartureSensor(PtvEntity, SensorEntity):
         """Dynamic friendly name using current destination.
 
         Format: "Towards Flinders Street · next"
-        Falls back to "{device_label} · next" when destination isn't yet known.
+        Falls back to just the slot label when destination isn't yet known,
+        since the stop/route name is already shown as the device name.
         """
         dep = self._departure
         destination = dep.get("destination_name", "") if dep else ""
-        prefix = f"Towards {destination}" if destination else self._device_label
-        return f"{prefix} · {self._SLOT_LABELS[self._slot]}"
+        label = self._SLOT_LABELS[self._slot]
+        if destination:
+            return f"Towards {destination} · {label}"
+        return label
 
     @property
     def _departure(self) -> dict | None:
