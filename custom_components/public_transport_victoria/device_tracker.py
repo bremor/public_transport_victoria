@@ -21,11 +21,16 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up vehicle position trackers for a config entry.
 
     Trackers are created dynamically as new run_refs with GPS data appear
-    in coordinator updates. A new tracker is only created once per run_ref
-    per HA session — updates after that go through _handle_coordinator_update.
+    in coordinator updates.  A single global registry (hass.data[DOMAIN]["run_trackers"])
+    prevents duplicate tracker entities when multiple entries cover overlapping
+    routes — the first entry to see a run_ref owns its tracker.
     """
     coordinator = hass.data[DOMAIN][config_entry.entry_id]["coordinator"]
-    known_run_refs: set[str] = set()
+
+    # Cross-entry registry: run_ref → entry_id that owns the tracker
+    global_trackers: dict[str, str] = hass.data[DOMAIN].setdefault("run_trackers", {})
+    # run_refs registered by THIS entry so we can free them on unload
+    my_run_refs: set[str] = set()
 
     @callback
     def _check_for_new_trackers() -> None:
@@ -36,17 +41,25 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             pos = dep.get("vehicle_position") or {}
             if not run_ref or not pos.get("latitude"):
                 continue
-            if run_ref not in known_run_refs:
-                known_run_refs.add(run_ref)
+            if run_ref not in global_trackers:
+                global_trackers[run_ref] = config_entry.entry_id
+                my_run_refs.add(run_ref)
                 new_entities.append(
                     PtvVehicleTracker(coordinator, config_entry, run_ref)
                 )
         if new_entities:
             async_add_entities(new_entities)
 
+    @callback
+    def _cleanup() -> None:
+        """Release this entry's run_refs so another entry can reclaim them."""
+        for run_ref in my_run_refs:
+            global_trackers.pop(run_ref, None)
+
     config_entry.async_on_unload(
         coordinator.async_add_listener(_check_for_new_trackers)
     )
+    config_entry.async_on_unload(_cleanup)
     # Seed from data already loaded during coordinator first refresh
     _check_for_new_trackers()
 
@@ -76,7 +89,9 @@ class PtvVehicleTracker(PtvEntity, TrackerEntity):
 
     @property
     def unique_id(self) -> str:
-        return f"{self._config_entry.entry_id}_vehicle_{self._run_ref}"
+        # Global across all entries — prevents HA entity registry duplicates
+        # when multiple station entries see the same run_ref.
+        return f"{DOMAIN}_vehicle_{self._run_ref}"
 
     @property
     def name(self) -> str:
