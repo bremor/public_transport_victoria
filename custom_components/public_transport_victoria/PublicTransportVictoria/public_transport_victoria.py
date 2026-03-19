@@ -37,6 +37,7 @@ SEARCH_PATH = "/v3/search/{}?include_outlets=false&include_addresses=false"
 STOP_DETAILS_PATH = "/v3/stops/{}/route_type/{}?stop_location=false&stop_amenities=false&stop_accessibility=false&stop_contact=false&stop_ticket=false&gtfs=false&stop_staffing=false&stop_disruptions=false"
 STOP_INFO_PATH = "/v3/stops/{}/route_type/{}?stop_location=true&stop_amenities=true&stop_accessibility=true&stop_ticket=true&stop_contact=false&stop_staffing=false&gtfs=false&stop_disruptions=false"
 STOPS_PATH = "/v3/stops/route/{}/route_type/{}?direction_id={}"
+PATTERN_PATH = "/v3/pattern/run/{}/route_type/{}?include_skipped_stops=true&expand=Stop"
 
 # Human-readable mode names for stop search results display
 _ROUTE_TYPE_NAMES = {
@@ -101,6 +102,7 @@ class Connector:
         self.filter_express = filter_express
         self.departures = []
         self.disruptions = []
+        self._pattern_cache: dict[str, dict] = {}  # run_ref → {upcoming, skipped}
 
     async def _init(self):
         """Async Init Public Transport Victoria connector.
@@ -287,6 +289,77 @@ class Connector:
                     self.route = route
                     return stops
 
+    async def async_stopping_pattern(self, run_ref: str, route_type: str) -> None:
+        """Fetch the stopping pattern for a run and store in _pattern_cache.
+
+        Caches a dict {"upcoming": [...stop names...], "skipped": [...stop names...]}
+        filtered to stops *after* the connector's current stop on the route.
+        Skipped stops (express services) have null scheduled times in the pattern.
+
+        Called concurrently for all new run_refs seen in async_update.
+        """
+        url = build_URL(
+            self.id, self.api_key,
+            PATTERN_PATH.format(run_ref, route_type),
+        )
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        self._pattern_cache[run_ref] = {}
+                        return
+                    data = await response.json()
+        except Exception as err:
+            _LOGGER.warning("Pattern fetch failed for run_ref %s: %s", run_ref, err)
+            self._pattern_cache[run_ref] = {}
+            return
+
+        pattern_deps = data.get("departures", [])
+        stops_info   = data.get("stops", {})
+
+        upcoming: list[str] = []
+        skipped:  list[str] = []
+        past_current = False
+
+        for dep in pattern_deps:
+            stop_id   = str(dep.get("stop_id", ""))
+            stop_obj  = stops_info.get(stop_id) or stops_info.get(int(stop_id), {}) if stop_id else {}
+            stop_name = stop_obj.get("stop_name", stop_id)
+            is_skipped = (
+                dep.get("scheduled_departure_utc") is None
+                and dep.get("estimated_departure_utc") is None
+            )
+
+            if stop_id == str(self.stop):
+                past_current = True
+                continue  # Don't include the boarding stop itself
+
+            if past_current:
+                if is_skipped:
+                    skipped.append(stop_name)
+                else:
+                    upcoming.append(stop_name)
+
+        # Edge case: current stop not found in pattern — return all stops
+        if not past_current:
+            for dep in pattern_deps:
+                stop_id   = str(dep.get("stop_id", ""))
+                stop_obj  = stops_info.get(stop_id) or stops_info.get(int(stop_id), {}) if stop_id else {}
+                stop_name = stop_obj.get("stop_name", stop_id)
+                is_skipped = (
+                    dep.get("scheduled_departure_utc") is None
+                    and dep.get("estimated_departure_utc") is None
+                )
+                if is_skipped:
+                    skipped.append(stop_name)
+                else:
+                    upcoming.append(stop_name)
+
+        self._pattern_cache[run_ref] = {
+            "upcoming": upcoming,
+            "skipped":  skipped,
+        }
+
     @Throttle(MIN_TIME_BETWEEN_UPDATES)
     async def async_update(self):
         """Update the departure information.
@@ -360,6 +433,28 @@ class Connector:
 
         if self.filter_express:
             self.departures = [d for d in self.departures if d.get("is_express", False)]
+
+        # Fetch stopping patterns for any run_refs not yet in cache.
+        # Patterns are static per run so we only ever call the API once per run_ref.
+        new_refs = [
+            dep["run_ref"]
+            for dep in self.departures
+            if dep.get("run_ref") and dep["run_ref"] not in self._pattern_cache
+        ]
+        if new_refs:
+            await asyncio.gather(*[
+                self.async_stopping_pattern(rr, self.route_type)
+                for rr in new_refs
+            ])
+
+        # Prune cache if it balloons (e.g. after running all day)
+        if len(self._pattern_cache) > 200:
+            active = {d.get("run_ref") for d in self.departures}
+            self._pattern_cache = {k: v for k, v in self._pattern_cache.items() if k in active}
+
+        # Attach cached pattern to each departure for the sensor layer to read
+        for dep in self.departures:
+            dep["stopping_pattern"] = self._pattern_cache.get(dep.get("run_ref"), {})
 
         for departure in self.departures:
             _LOGGER.debug(departure)

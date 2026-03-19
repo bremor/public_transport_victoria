@@ -117,6 +117,14 @@ class DepartureSensor(PtvDepartureEntity, SensorEntity):
             attrs["vehicle_longitude"] = vp.get("longitude")
             attrs["vehicle_bearing"] = vp.get("bearing")
 
+        # Stopping pattern — upcoming stops and any express-skipped stops.
+        # Fetched once per run_ref and cached in the connector.
+        pattern = dep.get("stopping_pattern") or {}
+        if pattern.get("upcoming"):
+            attrs["upcoming_stops"] = pattern["upcoming"]
+        if pattern.get("skipped"):
+            attrs["skipped_stops"] = pattern["skipped"]
+
         # When real-time data is available, compute variance from schedule.
         # variance_minutes: signed int for automations (positive=late, negative=early)
         # punctuality: human-readable string for display
