@@ -140,14 +140,12 @@ class PtvVehicleTracker(PtvEntity, TrackerEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Each tracker gets its own HA device, linked to the stop device via via_device."""
-        rt = self._connector.route_type_name or "Vehicle"
-        dest = self._destination or self._run_ref
+        """All trackers for this entry share one device, linked to the stop device."""
         return DeviceInfo(
-            identifiers={(DOMAIN, f"vehicle_{self._run_ref}")},
-            name=f"{rt} to {dest}",
+            identifiers={(DOMAIN, f"{self._config_entry.entry_id}_vehicles")},
+            name=f"{self._device_label} vehicles",
             manufacturer="Public Transport Victoria",
-            model=self._vehicle_description or rt,
+            model=self._connector.route_type_name or "Vehicles",
             via_device=(DOMAIN, self._config_entry.entry_id),
         )
 
