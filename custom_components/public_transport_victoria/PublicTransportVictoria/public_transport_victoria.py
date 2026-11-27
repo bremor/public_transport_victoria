@@ -9,6 +9,8 @@ from hashlib import sha1
 from homeassistant.util import Throttle
 from homeassistant.util.dt import get_time_zone
 
+from .redact import sanitise_request
+
 
 BASE_URL = "https://timetableapi.ptv.vic.gov.au"
 DEPARTURES_PATH = "/v3/departures/route_type/{}/stop/{}/route/{}?direction_id={}&max_results={}"
@@ -58,7 +60,9 @@ class Connector:
 
         if response is not None and response.status == 200:
             response = await response.json()
-            _LOGGER.debug(response)
+            _LOGGER.debug(
+                "Fetched route types: %d", len(response.get("route_types") or [])
+            )
             route_types = {}
             for r in response["route_types"]:
                 route_types[str(r["route_type"])] = r["route_type_name"]
@@ -123,7 +127,9 @@ class Connector:
 
         if response is not None and response.status == 200:
             response = await response.json()
-            _LOGGER.debug(response)
+            _LOGGER.debug(
+                "Fetched directions: %d", len(response.get("directions") or [])
+            )
             directions = {}
             for r in response["directions"]:
                 directions[str(r["direction_id"])] = r["direction_name"]
@@ -141,7 +147,7 @@ class Connector:
 
         if response is not None and response.status == 200:
             response = await response.json()
-            _LOGGER.debug(response)
+            _LOGGER.debug("Fetched stops: %d", len(response.get("stops") or []))
             stops = {}
             for r in response["stops"]:
                 stops[str(r["stop_id"])] = r["stop_name"]
@@ -160,7 +166,9 @@ class Connector:
 
         if response is not None and response.status == 200:
             response = await response.json()
-            _LOGGER.debug(response)
+            _LOGGER.debug(
+                "Fetched departures: %d", len(response.get("departures") or [])
+            )
             departures = response["departures"]
 
             run_infos = await asyncio.gather(
@@ -180,8 +188,7 @@ class Connector:
                 r["is_express"] = run_info.get("express_stop_count", 0) > 0 if run_info else False
                 self.departures.append(r)
 
-        for departure in self.departures:
-            _LOGGER.debug(departure)
+        _LOGGER.debug("Processed %d departures", len(self.departures))
 
     async def async_run(self, run_id):
         """Get run information from Public Transport Victoria API."""
@@ -192,7 +199,7 @@ class Connector:
 
         if response is not None and response.status == 200:
             response = await response.json()
-            _LOGGER.debug(response)
+            _LOGGER.debug("Fetched run info: found=%s", bool(response.get("runs")))
             if response.get("runs") and len(response["runs"]) > 0:
                 return response["runs"][0]
         return None
@@ -203,7 +210,7 @@ def build_URL(id, api_key, request):
     hashed = hmac.new(api_key.encode('utf-8'), raw.encode('utf-8'), sha1)
     signature = hashed.hexdigest()
     url = BASE_URL + raw + '&signature={}'.format(signature)
-    _LOGGER.debug(url)
+    _LOGGER.debug("Requesting PTV API path: %s", sanitise_request(request))
     return url
 
 def convert_utc_to_local(utc, hass):
