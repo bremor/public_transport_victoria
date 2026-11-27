@@ -3,7 +3,7 @@ import logging
 
 import voluptuous as vol
 
-from homeassistant import config_entries, exceptions
+from homeassistant import config_entries
 from homeassistant.const import CONF_API_KEY, CONF_ID
 
 from .const import (
@@ -17,10 +17,53 @@ from .const import (
     CONF_STOP_NAME, 
     DOMAIN
 )
-from .PublicTransportVictoria.public_transport_victoria import Connector
+from .PublicTransportVictoria.public_transport_victoria import (
+    Connector,
+    PTVAuthError,
+    PTVConnectionError,
+    PTVServiceError,
+)
 from .PublicTransportVictoria.redact import redact_config
 
 _LOGGER = logging.getLogger(__name__)
+
+# Every API failure the flow can expect; anything else is an "unknown" error.
+API_ERRORS = (PTVAuthError, PTVConnectionError, PTVServiceError)
+
+
+def _api_error_key(err):
+    """Map a typed connector error to a config-flow error key."""
+    if isinstance(err, PTVAuthError):
+        return "invalid_auth"
+    if isinstance(err, PTVConnectionError):
+        return "cannot_connect"
+    return "service_error"
+
+
+def _default_option(options, preferred=None):
+    """Return a string default that is guaranteed to be one of ``options``."""
+    if not options:
+        # Callers must abort the flow before building a schema from no options.
+        raise ValueError("cannot choose a default from an empty option set")
+    if preferred is not None and preferred in options:
+        return preferred
+    return next(iter(options))
+
+
+def _selection_schema(key, options, preferred=None):
+    """Build a dropdown schema whose values are strings end to end.
+
+    ``vol.Coerce`` keeps a client that submits an integer (the historical
+    default behaviour behind issue #40) valid, while every stored value is a
+    string, matching the connector's string-keyed option mappings.
+    """
+    return vol.Schema(
+        {
+            vol.Required(
+                key, default=_default_option(options, preferred)
+            ): vol.All(vol.Coerce(str), vol.In(options)),
+        }
+    )
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -37,6 +80,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self.data = {}
         _LOGGER.debug("Entering step user")
 
+        errors = {}
+
         # Check if there is already a config entry for this integration
         existing_entries = self._async_current_entries()
         if existing_entries:
@@ -47,16 +92,23 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # Copy id and api_key to self.data so it persists across steps
             self.data[CONF_ID] = entry.data[CONF_ID]
             self.data[CONF_API_KEY] = entry.data[CONF_API_KEY]
-            _LOGGER.debug(
-                "Carried over API key and ID into self.data: %s",
-                redact_config(self.data),
-            )
 
             self.connector = Connector(
                 self.hass, entry.data[CONF_ID], entry.data[CONF_API_KEY]
             )
-            self.route_types = await self.connector.async_route_types()
-            return await self.async_step_route_types()
+            try:
+                self.route_types = await self.connector.async_route_types()
+            except API_ERRORS as err:
+                _LOGGER.warning(
+                    "Could not load route types using the stored credentials: %s",
+                    err,
+                )
+                errors["base"] = _api_error_key(err)
+            else:
+                return await self.async_step_route_types()
+
+            # Fall through to the credentials form so the user can correct the
+            # stored credentials instead of getting an opaque failure.
 
         # If no existing entry, prompt user for API key and ID
         data_schema = vol.Schema(
@@ -66,7 +118,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
         )
 
-        errors = {}
         if user_input is not None:
             try:
                 _LOGGER.debug("Received user input: %s", redact_config(user_input))
@@ -77,20 +128,21 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self.route_types = await self.connector.async_route_types()
 
                 if not self.route_types:
-                    raise CannotConnect
+                    errors["base"] = "no_options"
+                else:
+                    # Store the API key and ID in self.data for later steps
+                    self.data[CONF_ID] = user_input[CONF_ID]
+                    self.data[CONF_API_KEY] = user_input[CONF_API_KEY]
+                    _LOGGER.debug(
+                        "Stored API key and ID in self.data: %s",
+                        redact_config(self.data),
+                    )
 
-                # Store the API key and ID in self.data for use in subsequent steps
-                self.data[CONF_ID] = user_input[CONF_ID]
-                self.data[CONF_API_KEY] = user_input[CONF_API_KEY]
-                _LOGGER.debug(
-                    "Stored API key and ID in self.data: %s", redact_config(self.data)
-                )
+                    return await self.async_step_route_types()
 
-                return await self.async_step_route_types()
-
-            except CannotConnect:
-                _LOGGER.error("Cannot connect to Public Transport Victoria API.")
-                errors["base"] = "cannot_connect"
+            except API_ERRORS as err:
+                _LOGGER.warning("Could not load route types: %s", err)
+                errors["base"] = _api_error_key(err)
             except Exception:
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
@@ -102,27 +154,30 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_route_types(self, user_input=None):
         """Handle the route types step."""
-        data_schema = vol.Schema({
-            vol.Required(CONF_ROUTE_TYPE, default=0): vol.In(self.route_types),
-        })
+        if not self.route_types:
+            _LOGGER.warning("Public Transport Victoria returned no route types")
+            return self.async_abort(reason="no_options")
+
+        data_schema = _selection_schema(
+            CONF_ROUTE_TYPE, self.route_types, preferred="0"
+        )
 
         errors = {}
         if user_input is not None:
+            route_type = user_input[CONF_ROUTE_TYPE]
             try:
-                self.routes = await self.connector.async_routes(
-                    user_input[CONF_ROUTE_TYPE]
-                )
-
-                self.data[CONF_ROUTE_TYPE] = user_input[CONF_ROUTE_TYPE]
-                self.data[CONF_ROUTE_TYPE_NAME] = self.route_types[user_input[CONF_ROUTE_TYPE]]
-
-                return await self.async_step_routes()
-
-            except CannotConnect:
-                errors["base"] = "cannot_connect"
+                self.routes = await self.connector.async_routes(route_type)
+            except API_ERRORS as err:
+                _LOGGER.warning("Could not load routes: %s", err)
+                errors["base"] = _api_error_key(err)
             except Exception:
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
+            else:
+                self.data[CONF_ROUTE_TYPE] = route_type
+                self.data[CONF_ROUTE_TYPE_NAME] = self.route_types[route_type]
+
+                return await self.async_step_routes()
 
         # If there is no user input or there were errors, show the form again.
         return self.async_show_form(
@@ -130,28 +185,29 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_routes(self, user_input=None):
-        """Handle the route types step."""
-        data_schema = vol.Schema({
-            vol.Required(CONF_ROUTE, default=next(iter(self.routes))): vol.In(self.routes),
-        })
+        """Handle the routes step."""
+        if not self.routes:
+            _LOGGER.warning("Public Transport Victoria returned no routes")
+            return self.async_abort(reason="no_options")
+
+        data_schema = _selection_schema(CONF_ROUTE, self.routes)
 
         errors = {}
         if user_input is not None:
+            route = user_input[CONF_ROUTE]
             try:
-                self.directions = await self.connector.async_directions(
-                    user_input[CONF_ROUTE]
-                )
-
-                self.data[CONF_ROUTE] = user_input[CONF_ROUTE]
-                self.data[CONF_ROUTE_NAME] = self.routes[user_input[CONF_ROUTE]]
-
-                return await self.async_step_directions()
-
-            except CannotConnect:
-                errors["base"] = "cannot_connect"
+                self.directions = await self.connector.async_directions(route)
+            except API_ERRORS as err:
+                _LOGGER.warning("Could not load directions: %s", err)
+                errors["base"] = _api_error_key(err)
             except Exception:
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
+            else:
+                self.data[CONF_ROUTE] = route
+                self.data[CONF_ROUTE_NAME] = self.routes[route]
+
+                return await self.async_step_directions()
 
         # If there is no user input or there were errors, show the form again.
         return self.async_show_form(
@@ -159,28 +215,31 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_directions(self, user_input=None):
-        """Handle the direction types step."""
-        data_schema = vol.Schema({
-            vol.Required(CONF_DIRECTION, default=next(iter(self.directions))): vol.In(self.directions),
-        })
+        """Handle the directions step."""
+        if not self.directions:
+            _LOGGER.warning("Public Transport Victoria returned no directions")
+            return self.async_abort(reason="no_options")
+
+        data_schema = _selection_schema(CONF_DIRECTION, self.directions)
 
         errors = {}
         if user_input is not None:
+            direction = user_input[CONF_DIRECTION]
             try:
                 self.stops = await self.connector.async_stops(
                     self.data[CONF_ROUTE]
                 )
-
-                self.data[CONF_DIRECTION] = user_input[CONF_DIRECTION]
-                self.data[CONF_DIRECTION_NAME] = self.directions[user_input[CONF_DIRECTION]]
-
-                return await self.async_step_stops()
-
-            except CannotConnect:
-                errors["base"] = "cannot_connect"
+            except API_ERRORS as err:
+                _LOGGER.warning("Could not load stops: %s", err)
+                errors["base"] = _api_error_key(err)
             except Exception:
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
+            else:
+                self.data[CONF_DIRECTION] = direction
+                self.data[CONF_DIRECTION_NAME] = self.directions[direction]
+
+                return await self.async_step_stops()
 
         # If there is no user input or there were errors, show the form again.
         return self.async_show_form(
@@ -188,35 +247,28 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_stops(self, user_input=None):
-        """Handle the stops types step."""
-        data_schema = vol.Schema({
-            vol.Required(CONF_STOP, default=next(iter(self.stops))): vol.In(self.stops),
-        })
+        """Handle the stops step."""
+        if not self.stops:
+            _LOGGER.warning("Public Transport Victoria returned no stops")
+            return self.async_abort(reason="no_options")
+
+        data_schema = _selection_schema(CONF_STOP, self.stops)
 
         errors = {}
         if user_input is not None:
-            try:
-                self.data[CONF_STOP] = user_input[CONF_STOP]
-                self.data[CONF_STOP_NAME] = self.stops[user_input[CONF_STOP]]
+            stop = user_input[CONF_STOP]
+            self.data[CONF_STOP] = stop
+            self.data[CONF_STOP_NAME] = self.stops[stop]
 
-                title = "{} line to {} from {}".format(
-                    self.data[CONF_ROUTE_NAME],
-                    self.data[CONF_DIRECTION_NAME],
-                    self.data[CONF_STOP_NAME]
-                )
+            title = "{} line to {} from {}".format(
+                self.data[CONF_ROUTE_NAME],
+                self.data[CONF_DIRECTION_NAME],
+                self.data[CONF_STOP_NAME]
+            )
 
-                return self.async_create_entry(title=title, data=self.data)
+            return self.async_create_entry(title=title, data=self.data)
 
-            except CannotConnect:
-                errors["base"] = "cannot_connect"
-            except Exception:
-                _LOGGER.exception("Unexpected exception")
-                errors["base"] = "unknown"
-
-        # If there is no user input or there were errors, show the form again.
+        # If there is no user input, show the form.
         return self.async_show_form(
             step_id="stops", data_schema=data_schema, errors=errors
         )
-
-class CannotConnect(exceptions.HomeAssistantError):
-    """Error to indicate we cannot connect."""
