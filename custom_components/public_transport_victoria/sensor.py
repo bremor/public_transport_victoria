@@ -7,9 +7,11 @@ from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     CoordinatorEntity,
+    UpdateFailed,
 )
 from homeassistant.const import ATTR_ATTRIBUTION
 from .const import ATTRIBUTION, DOMAIN
+from .PublicTransportVictoria.public_transport_victoria import PTVApiError
 
 _LOGGER = logging.getLogger(__name__)
 SCAN_INTERVAL = datetime.timedelta(minutes=10)
@@ -46,7 +48,12 @@ class PublicTransportVictoriaDataUpdateCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self):
         """Fetch data from Public Transport Victoria."""
         _LOGGER.debug("Fetching new data from Public Transport Victoria API.")
-        await self.connector.async_update()
+        try:
+            await self.connector.async_update()
+        except PTVApiError as err:
+            raise UpdateFailed(
+                "Error fetching Public Transport Victoria data: {}".format(err)
+            ) from err
         return self.connector.departures  # Return the latest data
 
 
