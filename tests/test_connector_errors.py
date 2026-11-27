@@ -36,7 +36,7 @@ class FakeResponse:
         self._payload = payload
         self._json_error = json_error
 
-    async def json(self):
+    async def json(self, content_type=None):
         if self._json_error is not None:
             raise self._json_error
         return self._payload
@@ -95,6 +95,14 @@ def install_api(monkeypatch):
     def _install(response):
         api = FakeAPI(response)
         monkeypatch.setattr(connector_module, "aiohttp", api.namespace)
+
+        def _get_session(_hass):
+            # P1.4 seam: the connector now asks HA for one shared session.
+            return FakeSession(api)
+
+        monkeypatch.setattr(
+            connector_module, "async_get_clientsession", _get_session
+        )
         return api
 
     return _install
@@ -252,6 +260,7 @@ async def test_empty_directions_and_stops_return_empty_mappings(install_api):
     assert await connector.async_directions(6) == {}
 
     install_api(FakeResponse(200, {"stops": []}))
+    connector = make_connector()
     assert await connector.async_stops(6) == {}
 
 

@@ -5,9 +5,10 @@ routes on the request path and returns fixture JSON.  The connector is imported
 from the real ``homeassistant`` package pinned by
 ``pytest-homeassistant-custom-component``.
 
-Several tests are labelled "documents current behaviour" or "documents
-current bug": they pin behaviour that P1.3/P1.4/P1.5 will deliberately
-change, so later PRs can prove the change is intentional.
+P1.3 introduced typed API errors and P1.4 made every request use one shared
+session with an explicit timeout, parsed JSON inside the response context and
+replaced silent stale-data handling with typed failures.  The tests below pin
+that guaranteed behaviour.
 """
 
 import copy
@@ -17,6 +18,7 @@ import sys
 import types
 from pathlib import Path
 
+import aiohttp
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -67,6 +69,8 @@ def _import_connector():
 connector_module = _import_connector()
 Connector = connector_module.Connector
 
+from custom_components.public_transport_victoria import sensor as sensor_module  # noqa: E402
+
 
 def fixture(name):
     return json.loads((FIXTURES / name).read_text())
@@ -90,7 +94,7 @@ class FakeResponse:
         self.status = status
         self._payload = payload
 
-    async def json(self):
+    async def json(self, content_type=None):
         return self._payload
 
     def __await__(self):
@@ -106,15 +110,23 @@ class FakeResponse:
         return False
 
 
+def _explode(*args, **kwargs):
+    raise AssertionError("aiohttp.ClientSession must never be constructed")
+
+
 class FakeAPI:
     """Route fake HTTP responses by request path (signature stripped)."""
 
     def __init__(self):
         self.routes = {}
+        self.raises = {}
         self.requests = []
+        self.get_calls = []
+        self.session_resolutions = 0
         self.default_status = 404
+        self.session = FakeSession(self)
         self.namespace = types.SimpleNamespace(
-            ClientSession=self._session, ClientTimeout=lambda **kwargs: None
+            ClientSession=_explode, ClientTimeout=lambda **kwargs: None
         )
 
     def add(self, path, payload, status=200):
@@ -125,36 +137,43 @@ class FakeAPI:
         self.routes[path] = (status, payload if payload is not None else {})
         return self
 
-    def _session(self, **kwargs):
-        return FakeSession(self)
+    def raise_on(self, path, err):
+        """Make requests for ``path`` raise ``err`` from ``get``."""
+        self.raises[path] = err
+        return self
 
-    def respond(self, url):
+    def respond(self, url, kwargs):
         path = url.split("timetableapi.ptv.vic.gov.au", 1)[1]
         # build_URL appends devid then signature; drop them to key the route.
         path = path.split("devid=")[0].rstrip("?&")
         self.requests.append(path)
+        self.get_calls.append((path, kwargs))
+        if path in self.raises:
+            raise self.raises[path]
         status, payload = self.routes.get(path, (self.default_status, {}))
         return FakeResponse(status, copy.deepcopy(payload))
 
 
 class FakeSession:
+    """Minimal ``aiohttp.ClientSession`` stand-in for one connector."""
+
     def __init__(self, api):
         self._api = api
 
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *exc_info):
-        return False
-
     def get(self, url, **kwargs):
-        return self._api.respond(url)
+        return self._api.respond(url, kwargs)
 
 
 @pytest.fixture
 def fake_api(monkeypatch):
     api = FakeAPI()
     monkeypatch.setattr(connector_module, "aiohttp", api.namespace)
+
+    def _get_session(_hass):
+        api.session_resolutions += 1
+        return api.session
+
+    monkeypatch.setattr(connector_module, "async_get_clientsession", _get_session)
     return api
 
 
@@ -164,7 +183,7 @@ def make_hass():
 
 def expected_departure(row):
     """Format a fixture row the way the connector does (hass TZ is UTC)."""
-    utc = row["estimated_departure_utc"] or row["scheduled_departure_utc"]
+    utc = row.get("estimated_departure_utc") or row["scheduled_departure_utc"]
     return datetime.datetime.strptime(utc, "%Y-%m-%dT%H:%M:%SZ").strftime(
         "%I:%M %p"
     )
@@ -306,6 +325,9 @@ async def test_async_update_happy_path_mixed_estimates(fake_api):
     # Every row is formatted from the estimate, falling back to the schedule.
     for row in connector.departures:
         assert row["departure"] == expected_departure(row)
+        # P1.4: the timestamp schema is stable; both keys always exist.
+        assert "estimated_departure_utc" in row
+        assert "scheduled_departure_utc" in row
 
     # The recording deliberately includes a null estimate (scheduled-only) row.
     assert any(
@@ -339,13 +361,13 @@ async def test_async_update_200_empty_departures_is_empty_list(fake_api):
 
 
 @pytest.mark.asyncio
-async def test_async_update_non_200_after_success_keeps_stale_data_documents_current(
+async def test_async_update_non_200_after_success_raises_and_keeps_previous_data(
     fake_api,
 ):
-    """Documents current behaviour (P1.4 will raise an error instead).
+    """P1.4: a later non-200 raises a typed error and preserves old data.
 
-    A later non-200 response leaves the previous departure list untouched and
-    raises nothing, so the coordinator reports success with stale data.
+    The coordinator must treat the poll as failed rather than publishing stale
+    departures as a successful update.
     """
     wire_happy_path(fake_api)
     connector = make_connector()
@@ -353,43 +375,66 @@ async def test_async_update_non_200_after_success_keeps_stale_data_documents_cur
     before = list(connector.departures)
 
     fake_api.set_status(REQUEST_DEPARTURES, 502)
-    await connector.async_update()
+    with pytest.raises(connector_module.PTVServiceError):
+        await connector.async_update()
 
     assert connector.departures == before
 
 
 @pytest.mark.asyncio
-async def test_async_update_initial_non_200_raises_documents_current_bug(fake_api):
-    """Documents current bug (P1.5 will turn this into a retryable failure).
-
-    Before the first success ``self.departures`` is never assigned, and the
-    unconditional logging line then raises ``AttributeError``.
-    """
+async def test_async_update_initial_non_200_raises_service_error(fake_api):
+    """P1.4: the first fetch fails with a typed error and leaves no partial data."""
     wire_happy_path(fake_api)
     fake_api.set_status(REQUEST_DEPARTURES, 500)
     connector = make_connector()
 
-    with pytest.raises(AttributeError):
+    with pytest.raises(connector_module.PTVServiceError):
         await connector._init()
+
+    assert connector.departures == []
 
 
 @pytest.mark.asyncio
-async def test_async_update_missing_scheduled_field_raises_keyerror_documents_bug(
-    fake_api,
-):
-    """Documents current bug (P1.4 will handle this gracefully).
-
-    A row that omits ``scheduled_departure_utc`` entirely is not the same as a
-    JSON null; the fallback branch raises ``KeyError``.
-    """
+async def test_async_update_rows_without_any_timestamp_are_dropped(fake_api):
+    """P1.4: an absent timestamp is not a KeyError; unusable rows are dropped."""
     wire_happy_path(fake_api)
     fake_api.add(
         REQUEST_DEPARTURES, fixture("departures-200-missing-fields.json")
     )
     connector = make_connector()
 
-    with pytest.raises(KeyError):
-        await connector._init()
+    await connector._init()
+
+    assert connector.departures == []
+    # Dropped rows must not trigger per-row run lookups.
+    assert fake_api.requests == [DEPARTURES_PATH]
+
+
+@pytest.mark.asyncio
+async def test_async_update_drops_only_rows_without_timestamps(fake_api):
+    """P1.4: one unusable row is dropped while the rest are kept."""
+    wire_happy_path(fake_api)
+    rows = copy.deepcopy(RECORDED_DEPARTURES[:2])
+    # Row 0 loses both timestamps: unusable.
+    del rows[0]["estimated_departure_utc"]
+    del rows[0]["scheduled_departure_utc"]
+    # Row 1 loses only the estimate: keep it, falling back to the schedule.
+    del rows[1]["estimated_departure_utc"]
+    fake_api.add(REQUEST_DEPARTURES, {"departures": rows})
+
+    connector = make_connector()
+    await connector._init()
+
+    assert len(connector.departures) == 1
+    kept = connector.departures[0]
+    assert kept["run_id"] == rows[1]["run_id"]
+    assert kept["estimated_departure_utc"] is None
+    assert kept["scheduled_departure_utc"] == rows[1]["scheduled_departure_utc"]
+    assert kept["departure"] == expected_departure(rows[1])
+    # Only the kept row is looked up; the dropped row never reaches /runs.
+    assert [
+        path for path in fake_api.requests if path.startswith("/v3/runs/")
+    ] == ["/v3/runs/{}".format(rows[1]["run_id"])]
 
 
 @pytest.mark.asyncio
@@ -423,6 +468,175 @@ async def test_async_run_returns_first_run(fake_api):
 
     assert run["run_id"] == RUN_ID_WITH_INFO
     assert run["express_stop_count"] == 12
+
+
+# ---------------------------------------------------------------------------
+# P1.4: one shared session, one explicit timeout
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_injected_session_serves_every_request(fake_api):
+    """Every request goes through the one injected session object.
+
+    ``aiohttp.ClientSession`` is monkeypatched to explode by the fixture, so a
+    request that tried to build its own session would fail loudly here.
+    """
+    wire_happy_path(fake_api)
+    connector = make_connector(session=fake_api.session)
+
+    await connector.async_route_types()
+    await connector.async_routes(0)
+    await connector.async_directions(6)
+    await connector.async_stops(6)
+    await connector._init()
+
+    assert fake_api.session_resolutions == 0
+    assert len(fake_api.get_calls) == 5 + len(RECORDED_DEPARTURES)
+
+
+@pytest.mark.asyncio
+async def test_get_session_uses_the_real_ha_shared_session(hass):
+    """The production path must call the real helper without awaiting it.
+
+    ``async_get_clientsession`` is a synchronous callback in supported Home
+    Assistant releases; awaiting it would raise on a real install.
+    """
+    from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+    connector = make_connector()
+    connector.hass = hass
+
+    session = connector._get_session()
+
+    assert session is async_get_clientsession(hass)
+    assert connector._get_session() is session
+
+
+@pytest.mark.asyncio
+async def test_resolved_shared_session_is_cached(fake_api):
+    """The HA session is resolved once and reused for every later request."""
+    wire_happy_path(fake_api)
+    connector = make_connector()
+
+    await connector._init()
+    await connector.async_route_types()
+
+    assert fake_api.session_resolutions == 1
+
+
+@pytest.mark.asyncio
+async def test_every_request_passes_the_module_timeout(fake_api):
+    wire_happy_path(fake_api)
+    connector = make_connector()
+
+    await connector.async_route_types()
+    await connector.async_routes(0)
+    await connector.async_directions(6)
+    await connector.async_stops(6)
+    await connector._init()
+
+    assert connector_module.REQUEST_TIMEOUT.total == 30
+    assert fake_api.get_calls
+    for path, kwargs in fake_api.get_calls:
+        assert kwargs.get("timeout") is connector_module.REQUEST_TIMEOUT, path
+
+
+# ---------------------------------------------------------------------------
+# P1.4: typed failures from async_update
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "error"),
+    [
+        (401, connector_module.PTVAuthError),
+        (403, connector_module.PTVAuthError),
+        (500, connector_module.PTVServiceError),
+        (502, connector_module.PTVServiceError),
+    ],
+)
+async def test_async_update_status_errors_are_typed(fake_api, status, error):
+    wire_happy_path(fake_api)
+    fake_api.set_status(REQUEST_DEPARTURES, status)
+    connector = make_connector()
+
+    with pytest.raises(error):
+        await connector._init()
+
+    assert connector.departures == []
+
+
+@pytest.mark.asyncio
+async def test_async_update_connection_error_is_typed(fake_api):
+    wire_happy_path(fake_api)
+    fake_api.raise_on(REQUEST_DEPARTURES, aiohttp.ClientError("boom"))
+    connector = make_connector()
+
+    with pytest.raises(connector_module.PTVConnectionError):
+        await connector._init()
+
+
+# ---------------------------------------------------------------------------
+# P1.4: the coordinator translates typed errors into UpdateFailed
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_coordinator_returns_departures_after_success(fake_api, hass):
+    wire_happy_path(fake_api)
+    connector = make_connector()
+    await connector._init()
+    coordinator = sensor_module.PublicTransportVictoriaDataUpdateCoordinator(
+        hass, connector
+    )
+
+    data = await coordinator._async_update_data()
+
+    assert data == connector.departures
+    assert len(data) == len(RECORDED_DEPARTURES)
+
+
+@pytest.mark.asyncio
+async def test_coordinator_marks_typed_failure_as_update_failed(fake_api, hass):
+    wire_happy_path(fake_api)
+    connector = make_connector()
+    await connector._init()
+    coordinator = sensor_module.PublicTransportVictoriaDataUpdateCoordinator(
+        hass, connector
+    )
+    previous = list(connector.departures)
+
+    fake_api.set_status(REQUEST_DEPARTURES, 500)
+    with pytest.raises(sensor_module.UpdateFailed) as excinfo:
+        await coordinator._async_update_data()
+
+    assert "HTTP 500" in str(excinfo.value)
+    # The coordinator failure does not destroy the last good connector data.
+    assert connector.departures == previous
+
+
+@pytest.mark.asyncio
+async def test_coordinator_refresh_marks_failure_after_success(fake_api, hass):
+    """End-to-end: one good poll, then a failing poll flips the success flag."""
+    wire_happy_path(fake_api)
+    connector = make_connector()
+    # Entry setup populates departures_path via _init() before the platform
+    # creates its coordinator (P1.5 will move that fetch into the coordinator).
+    await connector._init()
+    coordinator = sensor_module.PublicTransportVictoriaDataUpdateCoordinator(
+        hass, connector
+    )
+
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+    assert len(coordinator.data) == len(RECORDED_DEPARTURES)
+
+    fake_api.set_status(REQUEST_DEPARTURES, 500)
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success is False
 
 
 def test_convert_utc_to_local_is_deterministic():
