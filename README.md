@@ -40,7 +40,7 @@ Each config entry creates five sensors, one for each of the next five departures
 
 Each sensor's attributes contain the raw departure row returned by the PTV API for that departure, including the estimated and scheduled departure times, the run ID, and other fields supplied by the API.
 
-Departure data is refreshed by a coordinator approximately every 10 minutes. Manual refreshes, such as a call to `homeassistant.update_entity`, are subject to an internal 2-minute throttle: requests made sooner than that are ignored.
+Departure data is refreshed by a coordinator approximately every 10 minutes. Manual refreshes (for example the `homeassistant.update_entity` service) fetch immediately; Home Assistant may briefly batch repeated requests.
 
 ## Troubleshooting
 
