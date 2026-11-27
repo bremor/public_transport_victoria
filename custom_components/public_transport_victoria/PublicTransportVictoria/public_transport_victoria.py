@@ -253,6 +253,36 @@ class Connector:
         rows = _require_list(response, "departures", "departures")
         _LOGGER.debug("Fetched departures: %d", len(rows))
 
+        # Only keep rows for the configured route (issue #34).  Live captures
+        # show the route-scoped endpoint already filters correctly, but this
+        # guards against upstream data quirks and avoids run lookups for rows
+        # that would never be shown.  Rows without a route_id have unknown
+        # provenance and are dropped.  Direction is deliberately NOT filtered:
+        # same-route rows can legitimately carry adjacent direction ids during
+        # through-running and terminations, so route-level matching is the
+        # approved scope.  IDs are compared as strings because the config flow
+        # stores strings while responses may use either type.
+        configured_route = None if self.route is None else str(self.route)
+        filtered = 0
+        kept_rows = []
+        for row in rows:
+            route_id = row.get("route_id")
+            if (
+                configured_route is None
+                or route_id is None
+                or str(route_id) != configured_route
+            ):
+                filtered += 1
+                continue
+            kept_rows.append(row)
+        if filtered:
+            _LOGGER.debug(
+                "PTV: filtered %d departure row(s) not matching the configured "
+                "route",
+                filtered,
+            )
+        rows = kept_rows
+
         # Normalise first: every kept row must have both timestamp attributes,
         # and a row with no usable time at all is dropped rather than aborting
         # the whole update.
