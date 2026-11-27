@@ -2,11 +2,9 @@
 
 These run against the real ``homeassistant`` package that
 ``pytest-homeassistant-custom-component`` pins (see ``requirements_test.txt``),
-so CI installs exactly what is exercised here.  The connector still imports the
-deprecated ``homeassistant.util.Throttle`` decorator; it is replaced with a
-passthrough *only* for the duration of the import so tests can call
-``async_update`` more than once.  Nothing here touches the network and no real
-credential is used.
+so CI installs exactly what is exercised here.  P1.5 removed the deprecated
+``homeassistant.util.Throttle`` decorator, so the module imports directly.
+Nothing here touches the network and no real credential is used.
 """
 
 import hashlib
@@ -32,28 +30,11 @@ DEPARTURES_PATH = (
 )
 
 
-def _import_connector():
-    """Import the component connector with a non-throttling Throttle shim."""
-    import homeassistant.util as ha_util
-
-    def passthrough_throttle(minimum):
-        def decorator(func):
-            return func
-
-        return decorator
-
-    original = ha_util.Throttle
-    ha_util.Throttle = passthrough_throttle
-    try:
-        from custom_components.public_transport_victoria.PublicTransportVictoria import (
-            public_transport_victoria as module,
-        )
-    finally:
-        ha_util.Throttle = original
-    return module
+from custom_components.public_transport_victoria.PublicTransportVictoria import (  # noqa: E402
+    public_transport_victoria as connector,
+)
 
 
-connector = _import_connector()
 build_URL = connector.build_URL
 
 

@@ -7,12 +7,15 @@ from the real ``homeassistant`` package pinned by
 
 P1.3 introduced typed API errors and P1.4 made every request use one shared
 session with an explicit timeout, parsed JSON inside the response context and
-replaced silent stale-data handling with typed failures.  The tests below pin
-that guaranteed behaviour.
+replaced silent stale-data handling with typed failures.  P1.5 makes the
+DataUpdateCoordinator the only polling layer: ``prepare()`` performs no I/O and
+there is no throttle between refresh requests.  The tests below pin that
+guaranteed behaviour.
 """
 
 import copy
 import datetime
+import inspect
 import json
 import sys
 import types
@@ -20,6 +23,9 @@ from pathlib import Path
 
 import aiohttp
 import pytest
+
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.exceptions import ConfigEntryNotReady
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -41,32 +47,15 @@ REQUEST_DEPARTURES = DEPARTURES_PATH
 
 
 # ---------------------------------------------------------------------------
-# Module loading (real homeassistant, non-throttling shim)
+# Module loading (real homeassistant; no Throttle shim after P1.5)
 # ---------------------------------------------------------------------------
 
 
-def _import_connector():
-    """Import the connector with a non-throttling Throttle shim for the import."""
-    import homeassistant.util as ha_util
-
-    def passthrough_throttle(minimum):
-        def decorator(func):
-            return func
-
-        return decorator
-
-    original = ha_util.Throttle
-    ha_util.Throttle = passthrough_throttle
-    try:
-        from custom_components.public_transport_victoria.PublicTransportVictoria import (
-            public_transport_victoria as module,
-        )
-    finally:
-        ha_util.Throttle = original
-    return module
+from custom_components.public_transport_victoria.PublicTransportVictoria import (  # noqa: E402
+    public_transport_victoria as connector_module,
+)
 
 
-connector_module = _import_connector()
 Connector = connector_module.Connector
 
 from custom_components.public_transport_victoria import sensor as sensor_module  # noqa: E402
@@ -189,6 +178,12 @@ def expected_departure(row):
     )
 
 
+async def prepare_and_update(connector):
+    """Run P1.5's synchronous path setup, then the coordinator-owned fetch."""
+    connector.prepare()
+    await connector.async_update()
+
+
 def make_connector(**overrides):
     kwargs = dict(
         hass=make_hass(),
@@ -201,6 +196,23 @@ def make_connector(**overrides):
     )
     kwargs.update(overrides)
     return Connector(**kwargs)
+
+
+def make_coordinator(hass, connector):
+    """Build a coordinator as if created during config-entry setup.
+
+    Production relies on Home Assistant's ``current_entry`` context to attach
+    the config entry; tests set the same state explicitly so the real
+    ``async_config_entry_first_refresh`` retry semantics are exercised.
+    """
+    coordinator = sensor_module.PublicTransportVictoriaDataUpdateCoordinator(
+        hass, connector
+    )
+    coordinator.config_entry = types.SimpleNamespace(
+        state=ConfigEntryState.SETUP_IN_PROGRESS,
+        pref_disable_polling=False,
+    )
+    return coordinator
 
 
 def wire_happy_path(api, *, run_status=200, departures_status=200):
@@ -315,7 +327,7 @@ async def test_async_update_happy_path_mixed_estimates(fake_api):
     wire_happy_path(fake_api)
     connector = make_connector()
 
-    await connector._init()
+    await prepare_and_update(connector)
 
     assert len(connector.departures) == len(RECORDED_DEPARTURES)
     first = connector.departures[0]
@@ -354,7 +366,7 @@ async def test_async_update_200_empty_departures_is_empty_list(fake_api):
     fake_api.add(REQUEST_DEPARTURES, fixture("departures-200-empty.json"))
     connector = make_connector()
 
-    await connector._init()
+    await prepare_and_update(connector)
 
     assert connector.departures == []
     assert fake_api.requests == [DEPARTURES_PATH]  # no run lookups
@@ -371,7 +383,7 @@ async def test_async_update_non_200_after_success_raises_and_keeps_previous_data
     """
     wire_happy_path(fake_api)
     connector = make_connector()
-    await connector._init()
+    await prepare_and_update(connector)
     before = list(connector.departures)
 
     fake_api.set_status(REQUEST_DEPARTURES, 502)
@@ -389,7 +401,7 @@ async def test_async_update_initial_non_200_raises_service_error(fake_api):
     connector = make_connector()
 
     with pytest.raises(connector_module.PTVServiceError):
-        await connector._init()
+        await prepare_and_update(connector)
 
     assert connector.departures == []
 
@@ -403,7 +415,7 @@ async def test_async_update_rows_without_any_timestamp_are_dropped(fake_api):
     )
     connector = make_connector()
 
-    await connector._init()
+    await prepare_and_update(connector)
 
     assert connector.departures == []
     # Dropped rows must not trigger per-row run lookups.
@@ -423,7 +435,7 @@ async def test_async_update_drops_only_rows_without_timestamps(fake_api):
     fake_api.add(REQUEST_DEPARTURES, {"departures": rows})
 
     connector = make_connector()
-    await connector._init()
+    await prepare_and_update(connector)
 
     assert len(connector.departures) == 1
     kept = connector.departures[0]
@@ -444,7 +456,7 @@ async def test_async_update_derived_mixed_fixture(fake_api):
     fake_api.add(REQUEST_DEPARTURES, fixture("departures-200-mixed.json"))
     connector = make_connector()
 
-    await connector._init()
+    await prepare_and_update(connector)
 
     estimates = [row["estimated_departure_utc"] for row in connector.departures]
     assert estimates[0] is None
@@ -489,7 +501,7 @@ async def test_injected_session_serves_every_request(fake_api):
     await connector.async_routes(0)
     await connector.async_directions(6)
     await connector.async_stops(6)
-    await connector._init()
+    await prepare_and_update(connector)
 
     assert fake_api.session_resolutions == 0
     assert len(fake_api.get_calls) == 5 + len(RECORDED_DEPARTURES)
@@ -519,7 +531,7 @@ async def test_resolved_shared_session_is_cached(fake_api):
     wire_happy_path(fake_api)
     connector = make_connector()
 
-    await connector._init()
+    await prepare_and_update(connector)
     await connector.async_route_types()
 
     assert fake_api.session_resolutions == 1
@@ -534,7 +546,7 @@ async def test_every_request_passes_the_module_timeout(fake_api):
     await connector.async_routes(0)
     await connector.async_directions(6)
     await connector.async_stops(6)
-    await connector._init()
+    await prepare_and_update(connector)
 
     assert connector_module.REQUEST_TIMEOUT.total == 30
     assert fake_api.get_calls
@@ -563,7 +575,7 @@ async def test_async_update_status_errors_are_typed(fake_api, status, error):
     connector = make_connector()
 
     with pytest.raises(error):
-        await connector._init()
+        await prepare_and_update(connector)
 
     assert connector.departures == []
 
@@ -575,7 +587,7 @@ async def test_async_update_connection_error_is_typed(fake_api):
     connector = make_connector()
 
     with pytest.raises(connector_module.PTVConnectionError):
-        await connector._init()
+        await prepare_and_update(connector)
 
 
 # ---------------------------------------------------------------------------
@@ -587,7 +599,7 @@ async def test_async_update_connection_error_is_typed(fake_api):
 async def test_coordinator_returns_departures_after_success(fake_api, hass):
     wire_happy_path(fake_api)
     connector = make_connector()
-    await connector._init()
+    connector.prepare()
     coordinator = sensor_module.PublicTransportVictoriaDataUpdateCoordinator(
         hass, connector
     )
@@ -602,7 +614,7 @@ async def test_coordinator_returns_departures_after_success(fake_api, hass):
 async def test_coordinator_marks_typed_failure_as_update_failed(fake_api, hass):
     wire_happy_path(fake_api)
     connector = make_connector()
-    await connector._init()
+    connector.prepare()
     coordinator = sensor_module.PublicTransportVictoriaDataUpdateCoordinator(
         hass, connector
     )
@@ -622,9 +634,8 @@ async def test_coordinator_refresh_marks_failure_after_success(fake_api, hass):
     """End-to-end: one good poll, then a failing poll flips the success flag."""
     wire_happy_path(fake_api)
     connector = make_connector()
-    # Entry setup populates departures_path via _init() before the platform
-    # creates its coordinator (P1.5 will move that fetch into the coordinator).
-    await connector._init()
+    # P1.5: entry setup only computes the path; the coordinator owns the fetch.
+    connector.prepare()
     coordinator = sensor_module.PublicTransportVictoriaDataUpdateCoordinator(
         hass, connector
     )
@@ -637,6 +648,206 @@ async def test_coordinator_refresh_marks_failure_after_success(fake_api, hass):
     await coordinator.async_refresh()
 
     assert coordinator.last_update_success is False
+
+
+@pytest.mark.asyncio
+async def test_empty_departures_are_a_successful_empty_result(fake_api, hass):
+    """Acceptance: an empty list is valid data, not a coordinator failure."""
+    wire_happy_path(fake_api)
+    fake_api.add(REQUEST_DEPARTURES, fixture("departures-200-empty.json"))
+    connector = make_connector()
+    connector.prepare()
+    coordinator = make_coordinator(hass, connector)
+
+    await coordinator.async_config_entry_first_refresh()
+
+    assert coordinator.last_update_success is True
+    assert coordinator.data == []
+
+
+# ---------------------------------------------------------------------------
+# P1.5: one polling layer, no throttle, immutable coordinator data
+# ---------------------------------------------------------------------------
+
+
+def test_prepare_only_computes_the_path_without_network_io(fake_api):
+    """Entry setup must not fetch: prepare() is synchronous and I/O free."""
+    connector = make_connector()
+
+    assert not inspect.iscoroutinefunction(Connector.prepare)
+    connector.prepare()
+
+    assert connector.departures_path == DEPARTURES_PATH
+    assert connector.departures == []
+    assert fake_api.requests == []
+    assert fake_api.get_calls == []
+    assert fake_api.session_resolutions == 0
+
+
+def test_no_throttle_layer_remains_in_the_connector():
+    """The coordinator is the only polling boundary."""
+    assert not hasattr(connector_module, "Throttle")
+    assert not hasattr(connector_module, "MIN_TIME_BETWEEN_UPDATES")
+
+
+@pytest.mark.asyncio
+async def test_entry_setup_prepares_without_fetching(fake_api):
+    """Config-entry setup performs zero HTTP calls; the platform fetches once."""
+    import custom_components.public_transport_victoria as integration
+    from custom_components.public_transport_victoria.const import (
+        CONF_DIRECTION,
+        CONF_DIRECTION_NAME,
+        CONF_ROUTE,
+        CONF_ROUTE_NAME,
+        CONF_ROUTE_TYPE,
+        CONF_ROUTE_TYPE_NAME,
+        CONF_STOP,
+        CONF_STOP_NAME,
+        DOMAIN,
+    )
+    from homeassistant.const import CONF_API_KEY, CONF_ID
+
+    forwarded = []
+
+    async def forward_entry_setups(entry, platforms):
+        forwarded.append((entry, platforms))
+
+    hass = types.SimpleNamespace(
+        data={},
+        config_entries=types.SimpleNamespace(
+            async_forward_entry_setups=forward_entry_setups
+        ),
+    )
+    entry = types.SimpleNamespace(
+        entry_id="entry-1",
+        data={
+            CONF_ID: CANARY_DEVID,
+            CONF_API_KEY: CANARY_API_KEY,
+            CONF_ROUTE_TYPE: 0,
+            CONF_ROUTE: 6,
+            CONF_DIRECTION: 5,
+            CONF_STOP: 1071,
+            CONF_ROUTE_TYPE_NAME: "Train",
+            CONF_ROUTE_NAME: "Frankston",
+            CONF_DIRECTION_NAME: "Frankston",
+            CONF_STOP_NAME: "Flinders Street Station",
+        },
+    )
+
+    assert await integration.async_setup(hass, {}) is True
+    assert await integration.async_setup_entry(hass, entry) is True
+
+    connector = hass.data[DOMAIN]["entry-1"]
+    assert connector.departures_path == DEPARTURES_PATH
+    assert connector.departures == []
+    assert fake_api.requests == []
+    assert fake_api.get_calls == []
+    assert forwarded == [(entry, ["sensor"])]
+
+
+@pytest.mark.asyncio
+async def test_successive_connector_updates_always_fetch(fake_api):
+    """Without a throttle, two updates issue two separate GET bursts."""
+    wire_happy_path(fake_api)
+    connector = make_connector()
+
+    await prepare_and_update(connector)
+    assert fake_api.requests.count(REQUEST_DEPARTURES) == 1
+
+    await connector.async_update()
+    assert fake_api.requests.count(REQUEST_DEPARTURES) == 2
+
+
+@pytest.mark.asyncio
+async def test_each_coordinator_refresh_fetches_again(fake_api, hass):
+    """Regression for the live defect: refreshes are never suppressed.
+
+    Three consecutive coordinator refreshes (scheduled or manual, both use the
+    same path) must each issue exactly one departures request.
+    """
+    wire_happy_path(fake_api)
+    connector = make_connector()
+    connector.prepare()
+    coordinator = make_coordinator(hass, connector)
+
+    assert fake_api.requests.count(REQUEST_DEPARTURES) == 0
+
+    for expected in (1, 2, 3):
+        await coordinator.async_refresh()
+        assert coordinator.last_update_success is True
+        assert fake_api.requests.count(REQUEST_DEPARTURES) == expected
+
+
+@pytest.mark.asyncio
+async def test_manual_entity_update_issues_a_fetch(fake_api, hass):
+    """``homeassistant.update_entity`` reaches the API without being swallowed."""
+    wire_happy_path(fake_api)
+    connector = make_connector()
+    connector.prepare()
+    coordinator = make_coordinator(hass, connector)
+    await coordinator.async_config_entry_first_refresh()
+
+    entity = sensor_module.PublicTransportVictoriaSensor(coordinator, 0)
+    entity.hass = hass
+    before = fake_api.requests.count(REQUEST_DEPARTURES)
+
+    await entity.async_update()
+    await hass.async_block_till_done()
+
+    assert fake_api.requests.count(REQUEST_DEPARTURES) == before + 1
+
+
+@pytest.mark.asyncio
+async def test_first_refresh_failure_is_retryable_and_recovers(fake_api, hass):
+    """Startup failure stays retryable; a later success restores availability."""
+    wire_happy_path(fake_api)
+    fake_api.set_status(REQUEST_DEPARTURES, 500)
+    connector = make_connector()
+    connector.prepare()
+    coordinator = make_coordinator(hass, connector)
+    entity = sensor_module.PublicTransportVictoriaSensor(coordinator, 0)
+
+    with pytest.raises(ConfigEntryNotReady):
+        await coordinator.async_config_entry_first_refresh()
+
+    assert coordinator.last_update_success is False
+    assert coordinator.data is None
+    assert entity.available is False
+    assert connector.departures == []
+
+    fake_api.add(
+        REQUEST_DEPARTURES, fixture("departures-frankston-flinders.json")
+    )
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success is True
+    assert entity.available is True
+    assert len(coordinator.data) == len(RECORDED_DEPARTURES)
+
+
+@pytest.mark.asyncio
+async def test_attribute_reads_do_not_mutate_coordinator_data(fake_api, hass):
+    """Attributes are a fresh copy; attribution is entity metadata."""
+    wire_happy_path(fake_api)
+    connector = make_connector()
+    connector.prepare()
+    coordinator = make_coordinator(hass, connector)
+    await coordinator.async_config_entry_first_refresh()
+    snapshot = copy.deepcopy(coordinator.data)
+    entity = sensor_module.PublicTransportVictoriaSensor(coordinator, 0)
+
+    first = entity.extra_state_attributes
+    second = entity.extra_state_attributes
+
+    assert coordinator.data == snapshot
+    assert first == second
+    assert first is not coordinator.data[0]
+    assert "attribution" not in first
+    assert "attribution" not in coordinator.data[0]
+    assert entity.attribution == sensor_module.ATTRIBUTION
+
+    first["injected"] = True
+    assert "injected" not in coordinator.data[0]
 
 
 def test_convert_utc_to_local_is_deterministic():

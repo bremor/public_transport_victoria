@@ -43,7 +43,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.data[CONF_DIRECTION_NAME],
         entry.data[CONF_STOP_NAME],
     )
-    await connector._init()
+    # Compute the request path only.  The coordinator's first refresh performs
+    # the single initial network fetch, so setup never polls outside it.
+    connector.prepare()
 
     hass.data[DOMAIN][entry.entry_id] = connector
 
