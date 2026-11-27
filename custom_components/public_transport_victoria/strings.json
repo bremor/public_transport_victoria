@@ -35,10 +35,14 @@
     },
     "error": {
       "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
+      "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
+      "no_options": "Public Transport Victoria returned no options. Try again later.",
+      "service_error": "Public Transport Victoria returned an unexpected response. Try again later.",
       "unknown": "[%key:common::config_flow::error::unknown%]"
     },
     "abort": {
-      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]"
+      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
+      "no_options": "Public Transport Victoria returned no options. Try again later."
     }
   }
 }

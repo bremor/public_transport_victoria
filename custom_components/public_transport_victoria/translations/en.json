@@ -1,10 +1,14 @@
 {
     "config": {
         "abort": {
-            "already_configured": "[%key:common::config_flow::abort::already_configured_device%]"
+            "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
+            "no_options": "Public Transport Victoria returned no options. Try again later."
         },
         "error": {
             "cannot_connect": "Unable to connect",
+            "invalid_auth": "Invalid developer ID or API key",
+            "no_options": "Public Transport Victoria returned no options for this selection. Try again later.",
+            "service_error": "Public Transport Victoria returned an unexpected response. Try again later.",
             "unknown": "Unknown error"
         },
         "step": {

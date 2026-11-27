@@ -23,6 +23,70 @@ STOPS_PATH = "/v3/stops/route/{}/route_type/{}"
 
 _LOGGER = logging.getLogger(__name__)
 
+
+class PTVApiError(Exception):
+    """Base class for Public Transport Victoria API failures."""
+
+
+class PTVAuthError(PTVApiError):
+    """The PTV API rejected the developer ID or API key."""
+
+
+class PTVConnectionError(PTVApiError):
+    """The PTV API could not be reached."""
+
+
+class PTVServiceError(PTVApiError):
+    """The PTV API returned an error status or an unusable response."""
+
+
+# Captured at import time so tests can replace the module-level ``aiohttp``
+# name with a stub without affecting this classification.
+_CONNECTION_ERRORS = (aiohttp.ClientError, asyncio.TimeoutError)
+_AUTH_STATUSES = (401, 403)
+
+
+def _check_status(response, operation):
+    """Raise a typed error unless the response was a successful HTTP 200."""
+    status = getattr(response, "status", None)
+    if status == 200:
+        return
+    if status in _AUTH_STATUSES:
+        raise PTVAuthError(
+            "PTV API rejected the credentials for {} (HTTP {})".format(
+                operation, status
+            )
+        )
+    raise PTVServiceError(
+        "PTV API returned HTTP {} for {}".format(status, operation)
+    )
+
+
+async def _read_json(response, operation):
+    """Return a JSON object body, raising PTVServiceError when unusable."""
+    try:
+        payload = await response.json()
+    except Exception as err:
+        raise PTVServiceError(
+            "PTV API returned an unreadable response for {}".format(operation)
+        ) from err
+    if not isinstance(payload, dict):
+        raise PTVServiceError(
+            "PTV API returned an unexpected response for {}".format(operation)
+        )
+    return payload
+
+
+def _require_list(payload, key, operation):
+    """Return ``payload[key]`` as a list or raise PTVServiceError."""
+    value = payload.get(key)
+    if not isinstance(value, list):
+        raise PTVServiceError(
+            "PTV API response for {} is missing '{}'".format(operation, key)
+        )
+    return value
+
+
 class Connector:
     """Public Transport Victoria connector."""
 
@@ -55,19 +119,23 @@ class Connector:
         """Get route types from Public Transport Victoria API."""
         url = build_URL(self.id, self.api_key, ROUTE_TYPES_PATH)
 
-        async with aiohttp.ClientSession() as session:
-            response = await session.get(url)
+        try:
+            async with aiohttp.ClientSession() as session:
+                response = await session.get(url)
+        except _CONNECTION_ERRORS as err:
+            raise PTVConnectionError(
+                "Could not reach the PTV API for route types"
+            ) from err
 
-        if response is not None and response.status == 200:
-            response = await response.json()
-            _LOGGER.debug(
-                "Fetched route types: %d", len(response.get("route_types") or [])
-            )
-            route_types = {}
-            for r in response["route_types"]:
-                route_types[str(r["route_type"])] = r["route_type_name"]
+        _check_status(response, "route types")
+        response = await _read_json(response, "route types")
 
-            return route_types
+        route_types = {}
+        for r in _require_list(response, "route_types", "route types"):
+            route_types[str(r["route_type"])] = r["route_type_name"]
+
+        _LOGGER.debug("Fetched route types: %d", len(route_types))
+        return route_types
 
     async def async_routes(self, route_type):
         """Get routes from Public Transport Victoria API."""
@@ -80,17 +148,18 @@ class Connector:
             sock_connect=30
         )
         
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            headers = {
-                'Accept-Encoding': 'gzip, deflate',
-                'Connection': 'keep-alive'
-            }
-            async with session.get(url, headers=headers) as response:
-                if response is not None and response.status == 200:
-                    response = await response.json()
-                    
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                headers = {
+                    'Accept-Encoding': 'gzip, deflate',
+                    'Connection': 'keep-alive'
+                }
+                async with session.get(url, headers=headers) as response:
+                    _check_status(response, "routes")
+                    response = await _read_json(response, "routes")
+
                     route_list = []
-                    for r in response["routes"]:
+                    for r in _require_list(response, "routes", "routes"):
                         route_number = r.get("route_number", "")
                         try:
                             sort_key = int(route_number) if route_number else float('inf')
@@ -115,46 +184,58 @@ class Connector:
                     
                     self.route_type = route_type
                     return routes
-                else:
-                    return {}
+        except _CONNECTION_ERRORS as err:
+            raise PTVConnectionError(
+                "Could not reach the PTV API for routes"
+            ) from err
 
     async def async_directions(self, route):
         """Get directions from Public Transport Victoria API."""
         url = build_URL(self.id, self.api_key, DIRECTIONS_PATH.format(route))
 
-        async with aiohttp.ClientSession() as session:
-            response = await session.get(url)
+        try:
+            async with aiohttp.ClientSession() as session:
+                response = await session.get(url)
+        except _CONNECTION_ERRORS as err:
+            raise PTVConnectionError(
+                "Could not reach the PTV API for directions"
+            ) from err
 
-        if response is not None and response.status == 200:
-            response = await response.json()
-            _LOGGER.debug(
-                "Fetched directions: %d", len(response.get("directions") or [])
-            )
-            directions = {}
-            for r in response["directions"]:
-                directions[str(r["direction_id"])] = r["direction_name"]
+        _check_status(response, "directions")
+        response = await _read_json(response, "directions")
 
-            self.route = route
+        directions = {}
+        for r in _require_list(response, "directions", "directions"):
+            directions[str(r["direction_id"])] = r["direction_name"]
 
-            return directions
+        self.route = route
+
+        _LOGGER.debug("Fetched directions: %d", len(directions))
+        return directions
 
     async def async_stops(self, route):
         """Get stops from Public Transport Victoria API."""
         url = build_URL(self.id, self.api_key, STOPS_PATH.format(route, self.route_type))
 
-        async with aiohttp.ClientSession() as session:
-            response = await session.get(url)
+        try:
+            async with aiohttp.ClientSession() as session:
+                response = await session.get(url)
+        except _CONNECTION_ERRORS as err:
+            raise PTVConnectionError(
+                "Could not reach the PTV API for stops"
+            ) from err
 
-        if response is not None and response.status == 200:
-            response = await response.json()
-            _LOGGER.debug("Fetched stops: %d", len(response.get("stops") or []))
-            stops = {}
-            for r in response["stops"]:
-                stops[str(r["stop_id"])] = r["stop_name"]
+        _check_status(response, "stops")
+        response = await _read_json(response, "stops")
 
-            self.route = route
+        stops = {}
+        for r in _require_list(response, "stops", "stops"):
+            stops[str(r["stop_id"])] = r["stop_name"]
 
-            return stops
+        self.route = route
+
+        _LOGGER.debug("Fetched stops: %d", len(stops))
+        return stops
 
     @Throttle(MIN_TIME_BETWEEN_UPDATES)
     async def async_update(self):

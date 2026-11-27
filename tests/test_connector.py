@@ -215,14 +215,13 @@ async def test_async_route_types_returns_string_keyed_dict(fake_api):
 
 
 @pytest.mark.asyncio
-async def test_async_route_types_non_200_returns_none_documents_current(fake_api):
-    """Documents current behaviour: a failed fetch returns ``None``, which the
-    config flow then treats as an empty mapping (P1.3 will make this explicit).
-    """
+async def test_async_route_types_401_raises_auth_error(fake_api):
+    """P1.3: a rejected credential raises a typed error instead of ``None``."""
     fake_api.set_status(ROUTE_TYPES_PATH, 401)
     connector = make_connector()
 
-    assert await connector.async_route_types() is None
+    with pytest.raises(connector_module.PTVAuthError):
+        await connector.async_route_types()
 
 
 @pytest.mark.asyncio
@@ -261,11 +260,13 @@ async def test_async_routes_fixture_mapping(fake_api):
 
 
 @pytest.mark.asyncio
-async def test_async_routes_non_200_returns_empty_dict(fake_api):
+async def test_async_routes_500_raises_service_error(fake_api):
+    """P1.3: a server error raises a typed error instead of ``{}``."""
     fake_api.set_status(ROUTES_PATH, 500)
     connector = make_connector()
 
-    assert await connector.async_routes(0) == {}
+    with pytest.raises(connector_module.PTVServiceError):
+        await connector.async_routes(0)
 
 
 @pytest.mark.asyncio
