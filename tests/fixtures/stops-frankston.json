@@ -1,0 +1,750 @@
+{
+  "RequestUrl": [],
+  "disruptions": {},
+  "geopath": [],
+  "status": {
+    "health": 1,
+    "version": "3.0"
+  },
+  "stops": [
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1008,
+      "stop_landmark": "",
+      "stop_latitude": -37.8564529,
+      "stop_longitude": 145.019333,
+      "stop_name": "Armadale Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Armadale",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": false,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          1
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 1"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1011,
+      "stop_landmark": "",
+      "stop_latitude": -38.02722,
+      "stop_longitude": 145.102158,
+      "stop_name": "Aspendale Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Aspendale",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": false,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          2
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 2"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1020,
+      "stop_landmark": "",
+      "stop_latitude": -37.9174271,
+      "stop_longitude": 145.036987,
+      "stop_name": "Bentleigh Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Bentleigh",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": true,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          1,
+          2
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 1,Zone 2"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1024,
+      "stop_landmark": "",
+      "stop_latitude": -38.0629463,
+      "stop_longitude": 145.119675,
+      "stop_name": "Bonbeach Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Bonbeach",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": false,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          2
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 2"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1035,
+      "stop_landmark": "",
+      "stop_latitude": -38.0765038,
+      "stop_longitude": 145.122833,
+      "stop_name": "Carrum Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Carrum",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": true,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          2
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 2"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1036,
+      "stop_landmark": "",
+      "stop_latitude": -37.8774567,
+      "stop_longitude": 145.042526,
+      "stop_name": "Caulfield Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Caulfield East",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": false,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          1
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 1"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1038,
+      "stop_landmark": "",
+      "stop_latitude": -38.05196,
+      "stop_longitude": 145.116043,
+      "stop_name": "Chelsea Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Chelsea",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": false,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          2
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 2"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1039,
+      "stop_landmark": "",
+      "stop_latitude": -37.9666519,
+      "stop_longitude": 145.05455,
+      "stop_name": "Cheltenham Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Cheltenham",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": true,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          2
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 2"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1060,
+      "stop_landmark": "",
+      "stop_latitude": -38.0360641,
+      "stop_longitude": 145.1073,
+      "stop_name": "Edithvale Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Edithvale",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": false,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          2
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 2"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1068,
+      "stop_landmark": "",
+      "stop_latitude": -37.8119774,
+      "stop_longitude": 144.955658,
+      "stop_name": "Flagstaff Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Melbourne City",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": true,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          1
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 1"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1071,
+      "stop_landmark": "",
+      "stop_latitude": -37.81831,
+      "stop_longitude": 144.966965,
+      "stop_name": "Flinders Street Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Melbourne City",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": true,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          1
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 1"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1073,
+      "stop_landmark": "",
+      "stop_latitude": -38.1429863,
+      "stop_longitude": 145.12616,
+      "stop_name": "Frankston Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Frankston",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": true,
+        "ticket_machine": false,
+        "ticket_type": "",
+        "ticket_zones": [
+          2
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 2"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1081,
+      "stop_landmark": "",
+      "stop_latitude": -37.8897171,
+      "stop_longitude": 145.042221,
+      "stop_name": "Glen Huntly Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Glen Huntly",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": false,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          1
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 1"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1089,
+      "stop_landmark": "",
+      "stop_latitude": -37.844593,
+      "stop_longitude": 145.002136,
+      "stop_name": "Hawksburn Station",
+      "stop_sequence": 0,
+      "stop_suburb": "South Yarra",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": false,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          1
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 1"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1095,
+      "stop_landmark": "",
+      "stop_latitude": -37.9484253,
+      "stop_longitude": 145.04187,
+      "stop_name": "Highett Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Highett",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": false,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          2
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 2"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1106,
+      "stop_landmark": "",
+      "stop_latitude": -38.12174,
+      "stop_longitude": 145.135284,
+      "stop_name": "Kananook Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Seaford",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": false,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          2
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 2"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1118,
+      "stop_landmark": "",
+      "stop_latitude": -37.86625,
+      "stop_longitude": 145.0293,
+      "stop_name": "Malvern Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Malvern",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": false,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          1
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 1"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1119,
+      "stop_landmark": "",
+      "stop_latitude": -37.910305,
+      "stop_longitude": 145.0383,
+      "stop_name": "McKinnon Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Mckinnon",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": false,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          1,
+          2
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 1,Zone 2"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1120,
+      "stop_landmark": "",
+      "stop_latitude": -37.8099365,
+      "stop_longitude": 144.9626,
+      "stop_name": "Melbourne Central Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Melbourne City",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": true,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          1
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 1"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1122,
+      "stop_landmark": "",
+      "stop_latitude": -37.98297,
+      "stop_longitude": 145.066,
+      "stop_name": "Mentone Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Mentone",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": false,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          2
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 2"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1132,
+      "stop_landmark": "",
+      "stop_latitude": -37.93435,
+      "stop_longitude": 145.036743,
+      "stop_name": "Moorabbin Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Moorabbin",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": false,
+        "ticket_machine": false,
+        "ticket_type": "",
+        "ticket_zones": [
+          2
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 2"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1134,
+      "stop_landmark": "",
+      "stop_latitude": -38.006588,
+      "stop_longitude": 145.087662,
+      "stop_name": "Mordialloc Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Mordialloc",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": true,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          2
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 2"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1152,
+      "stop_landmark": "",
+      "stop_latitude": -37.90321,
+      "stop_longitude": 145.039612,
+      "stop_name": "Ormond Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Ormond",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": false,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          1,
+          2
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 1,Zone 2"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1154,
+      "stop_landmark": "",
+      "stop_latitude": -37.9930763,
+      "stop_longitude": 145.076324,
+      "stop_name": "Parkdale Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Parkdale",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": false,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          2
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 2"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1155,
+      "stop_landmark": "",
+      "stop_latitude": -37.8110542,
+      "stop_longitude": 144.9729,
+      "stop_name": "Parliament Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Melbourne City",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": false,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          1
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 1"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1157,
+      "stop_landmark": "",
+      "stop_latitude": -37.9251442,
+      "stop_longitude": 145.035461,
+      "stop_name": "Patterson Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Bentleigh",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": false,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          2
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 2"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1162,
+      "stop_landmark": "",
+      "stop_latitude": -37.8240738,
+      "stop_longitude": 144.990158,
+      "stop_name": "Richmond Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Richmond",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": true,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          1
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 1"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1174,
+      "stop_landmark": "",
+      "stop_latitude": -38.1040154,
+      "stop_longitude": 145.128235,
+      "stop_name": "Seaford Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Seaford",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": false,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          2
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 2"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1180,
+      "stop_landmark": "",
+      "stop_latitude": -37.8384438,
+      "stop_longitude": 144.99234,
+      "stop_name": "South Yarra Station",
+      "stop_sequence": 0,
+      "stop_suburb": "South Yarra",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": false,
+        "ticket_machine": false,
+        "ticket_type": "",
+        "ticket_zones": [
+          1
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 1"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1181,
+      "stop_landmark": "",
+      "stop_latitude": -37.8179321,
+      "stop_longitude": 144.951416,
+      "stop_name": "Southern Cross Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Melbourne City",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": true,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          1
+        ],
+        "vline_reservation": true,
+        "zone": "Zone 1"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1001,
+      "stop_landmark": "",
+      "stop_latitude": -37.95876,
+      "stop_longitude": 145.049118,
+      "stop_name": "Southland Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Cheltenham",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": false,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          2
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 2"
+      }
+    },
+    {
+      "disruption_ids": [],
+      "interchange": [],
+      "route_type": 0,
+      "stop_id": 1194,
+      "stop_landmark": "",
+      "stop_latitude": -37.85077,
+      "stop_longitude": 145.0139,
+      "stop_name": "Toorak Station",
+      "stop_sequence": 0,
+      "stop_suburb": "Armadale",
+      "stop_ticket": {
+        "is_free_fare_zone": false,
+        "ticket_checks": false,
+        "ticket_machine": true,
+        "ticket_type": "",
+        "ticket_zones": [
+          1
+        ],
+        "vline_reservation": false,
+        "zone": "Zone 1"
+      }
+    }
+  ]
+}

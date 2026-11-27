@@ -162,5 +162,10 @@ cython_debug/
 #.idea/
 
 
+# Test harness (P1.2): local virtualenv and pytest caches
+.venv/
+tests/__pycache__/
+tests/fixtures/__pycache__/
+
 # AI related files
 .claude/

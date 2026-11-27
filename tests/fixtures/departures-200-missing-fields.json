@@ -1,0 +1,103 @@
+{
+  "departures": [
+    {
+      "at_platform": false,
+      "departure_note": "",
+      "departure_sequence": 0,
+      "direction_id": 5,
+      "disruption_ids": [
+        375088,
+        368912,
+        352201
+      ],
+      "estimated_departure_utc": null,
+      "flags": "",
+      "platform_number": "7",
+      "route_id": 6,
+      "run_id": 952567,
+      "run_ref": "952567",
+      "stop_id": 1071
+    },
+    {
+      "at_platform": false,
+      "departure_note": "",
+      "departure_sequence": 0,
+      "direction_id": 5,
+      "disruption_ids": [
+        375088,
+        368912,
+        352201
+      ],
+      "estimated_departure_utc": null,
+      "flags": "",
+      "platform_number": "7",
+      "route_id": 6,
+      "run_id": 952457,
+      "run_ref": "952457",
+      "stop_id": 1071
+    },
+    {
+      "at_platform": false,
+      "departure_note": "",
+      "departure_sequence": 0,
+      "direction_id": 5,
+      "disruption_ids": [
+        375088,
+        368912,
+        352201
+      ],
+      "estimated_departure_utc": null,
+      "flags": "",
+      "platform_number": "7",
+      "route_id": 6,
+      "run_id": 952569,
+      "run_ref": "952569",
+      "stop_id": 1071
+    },
+    {
+      "at_platform": false,
+      "departure_note": "",
+      "departure_sequence": 0,
+      "direction_id": 5,
+      "disruption_ids": [
+        375088,
+        368912,
+        352201
+      ],
+      "estimated_departure_utc": null,
+      "flags": "",
+      "platform_number": "7",
+      "route_id": 6,
+      "run_id": 952459,
+      "run_ref": "952459",
+      "stop_id": 1071
+    },
+    {
+      "at_platform": false,
+      "departure_note": "",
+      "departure_sequence": 0,
+      "direction_id": 5,
+      "disruption_ids": [
+        375088,
+        368912,
+        352201
+      ],
+      "estimated_departure_utc": null,
+      "flags": "",
+      "platform_number": "7",
+      "route_id": 6,
+      "run_id": 952571,
+      "run_ref": "952571",
+      "stop_id": 1071
+    }
+  ],
+  "directions": {},
+  "disruptions": {},
+  "routes": {},
+  "runs": {},
+  "status": {
+    "health": 1,
+    "version": "3.0"
+  },
+  "stops": {}
+}

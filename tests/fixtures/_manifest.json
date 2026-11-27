@@ -1,0 +1,49 @@
+{
+  "captured_at": "2026-11-27T06:36:56+00:00",
+  "derived_fixtures": [
+    "departures-200-mixed.json",
+    "departures-200-empty.json",
+    "departures-200-missing-fields.json"
+  ],
+  "requests": [
+    {
+      "path": "/v3/route_types",
+      "status": 200
+    },
+    {
+      "path": "/v3/routes?route_types=0",
+      "status": 200
+    },
+    {
+      "path": "/v3/routes?route_types=1",
+      "status": 200
+    },
+    {
+      "path": "/v3/routes?route_types=2",
+      "status": 200
+    },
+    {
+      "path": "/v3/directions/route/6",
+      "status": 200
+    },
+    {
+      "path": "/v3/stops/route/6/route_type/0",
+      "status": 200
+    },
+    {
+      "path": "/v3/departures/route_type/0/stop/1071/route/6?direction_id=5&max_results=5",
+      "status": 200
+    },
+    {
+      "path": "/v3/runs/952567",
+      "status": 200
+    }
+  ],
+  "source": "PTV Timetable API v3 live capture, well-known CBD targets",
+  "targets": {
+    "bus_route_number": "220",
+    "train_route": "Frankston",
+    "train_stop": "Flinders Street",
+    "tram_route_number": "96"
+  }
+}

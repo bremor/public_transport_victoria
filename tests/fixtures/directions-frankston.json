@@ -1,0 +1,22 @@
+{
+  "directions": [
+    {
+      "direction_id": 1,
+      "direction_name": "City",
+      "route_direction_description": "Trains depart Frankston and operate via Kananook, Seaford, Carrum, Bonbeach, Chelsea, Edithvale, Aspendale, Mordialloc, Parkdale, Mentone, Cheltenham, Southland, Highett, Moorabbin, Patterson, Bentleigh, McKinnon, Ormond, Glen Huntly, Caulfield, Malvern, Armadale, Toorak, Hawksburn, South Yarra, Richmond to Flinders Street.\r\nMost trains stop all stations; express services operate during weekday peaks.\r\n\r\nCity stations: Parliament, Melbourne Central, Flagstaff, Southern Cross and Flinders Street.\r\nCity Loop: Services to Flinders Street run from Parliament. Services from Flinders Street operate direct to Richmond.\r\n\r\nStopping patterns: During weekday peak periods, some selected express services run as follows:\r\nMorning peak (to city): Express from Cheltenham to Caulfield, then Malvern, South Yarra, Richmond and via the City Loop to Flinders Street.\r\nAfternoon peak (to Frankston): Depart Flinders Street, express to Caulfield, then express to Cheltenham, continuing all stations to Frankston.\r\n\r\nExact Stopping patterns may vary between peak periods and specific services, so passengers should check the timetable for individual train stopping arrangements.\r\n\r\nExceptions and Special running conditions\r\nNight Network services run approximately hourly overnight on Friday and Saturday nights. Services run direct to and from Flinders Street and do not run via the City Loop.\r\nTrains may run to altered schedules or be replaced by buses during weekends, public holidays or late at night.",
+      "route_id": 6,
+      "route_type": 0
+    },
+    {
+      "direction_id": 5,
+      "direction_name": "Frankston",
+      "route_direction_description": "Trains depart Flinders Street and run via Richmond, South Yarra, Hawksburn, Toorak, Armadale, Malvern, Caulfield, Glen Huntly, Ormond, McKinnon, Bentleigh, Patterson, Moorabbin, Highett, Southland, Cheltenham, Mentone, Parkdale, Mordialloc, Aspendale, Edithvale, Chelsea, Bonbeach, Carrum, Seaford and Kananook to Frankston.\r\nMost stop all stations; express services operate during weekday peaks.\r\n\r\nCity stations: Parliament, Melbourne Central, Flagstaff, Southern Cross and Flinders Street.\r\n\r\nCity Loop: Services to Flinders Street run from Parliament. Services from Flinders Street run direct to Richmond.\r\n\r\nStopping patterns: During weekday peak periods, some selected express services run as follows:\r\nMorning peak (to city): Express from Cheltenham to Caulfield, then Malvern, South Yarra, Richmond and via the City Loop to Flinders Street.\r\nAfternoon peak (to Frankston): Depart Flinders Street, express to Caulfield, then express to Cheltenham, continuing all stations to Frankston.\r\n\r\nExact stopping patterns may vary between peak periods and specific services, so passengers should check the timetable for individual train stopping arrangements.\r\n\r\nExceptions and Special running conditions\r\nNight Network services run approximately hourly overnight on Friday and Saturday nights. Services run direct to and from Flinders Street and do not run via the City Loop.\r\nTrains may run to altered schedules or be replaced by buses during weekends, public holidays or late at night.",
+      "route_id": 6,
+      "route_type": 0
+    }
+  ],
+  "status": {
+    "health": 1,
+    "version": "3.0"
+  }
+}

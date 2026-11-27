@@ -1,0 +1,22 @@
+# Test dependencies for the PTV integration regression harness (P1.2).
+#
+# Approach: the full Home Assistant test harness, so tests exercise real
+# `homeassistant` imports and `pytest-homeassistant-custom-component` can drive
+# the config flow.  `pytest-homeassistant-custom-component` pins the exact
+# `homeassistant` version it is built against, so pinning it (plus the two
+# plugins the tests call directly) reproduces this environment.
+#
+# Verified locally on macOS with CPython 3.13.18:
+#   pip install -r requirements_test.txt
+#   python -m pytest tests -q --asyncio-mode=auto
+#   -> 42 passed, 1 xfailed
+#
+# `--asyncio-mode=auto` is required for tests/test_config_flow.py because
+# pytest-homeassistant-custom-component's `hass` fixture is an async fixture
+# and this repo has no pytest.ini (P1.2 scope).  Without the flag the
+# config-flow module skips, leaving 38 passed, 5 skipped.
+pytest-homeassistant-custom-component==0.13.316
+homeassistant==2026.2.3
+pytest==9.0.0
+pytest-asyncio==1.3.0
+aiohttp==3.13.3
