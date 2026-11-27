@@ -1,0 +1,43 @@
+{
+  "runs": [
+    {
+      "destination_name": "Frankston ",
+      "direction_id": 5,
+      "express_stop_count": 12,
+      "externalService": null,
+      "final_stop_id": 1073,
+      "geopath": [],
+      "interchange": {
+        "distributor": {
+          "advertised": false,
+          "destination_name": "Flinders Street",
+          "direction_id": 1,
+          "route_id": 6,
+          "run_ref": "952974",
+          "stop_id": 1071
+        },
+        "feeder": {
+          "advertised": false,
+          "destination_name": "Flinders Street",
+          "direction_id": 1,
+          "route_id": 6,
+          "run_ref": "952714",
+          "stop_id": 1071
+        }
+      },
+      "route_id": 6,
+      "route_type": 0,
+      "run_id": 952567,
+      "run_note": "",
+      "run_ref": "952567",
+      "run_sequence": 0,
+      "status": "scheduled",
+      "vehicle_descriptor": null,
+      "vehicle_position": null
+    }
+  ],
+  "status": {
+    "health": 1,
+    "version": "3.0"
+  }
+}

@@ -1,0 +1,212 @@
+{
+  "routes": [
+    {
+      "geopath": [],
+      "route_gtfs_id": "2-ALM",
+      "route_id": 1,
+      "route_name": "Alamein",
+      "route_number": "",
+      "route_service_status": {
+        "description": "Good Service",
+        "timestamp": "2026-11-27T06:36:55.9113518+00:00"
+      },
+      "route_type": 0
+    },
+    {
+      "geopath": [],
+      "route_gtfs_id": "2-BEG",
+      "route_id": 2,
+      "route_name": "Belgrave",
+      "route_number": "",
+      "route_service_status": {
+        "description": "Good Service",
+        "timestamp": "2026-11-27T06:36:55.9113518+00:00"
+      },
+      "route_type": 0
+    },
+    {
+      "geopath": [],
+      "route_gtfs_id": "2-CGB",
+      "route_id": 3,
+      "route_name": "Craigieburn",
+      "route_number": "",
+      "route_service_status": {
+        "description": "Good Service",
+        "timestamp": "2026-11-27T06:36:55.9113518+00:00"
+      },
+      "route_type": 0
+    },
+    {
+      "geopath": [],
+      "route_gtfs_id": "2-CBE",
+      "route_id": 4,
+      "route_name": "Cranbourne",
+      "route_number": "",
+      "route_service_status": {
+        "description": "Good Service",
+        "timestamp": "2026-11-27T06:36:55.9113518+00:00"
+      },
+      "route_type": 0
+    },
+    {
+      "geopath": [],
+      "route_gtfs_id": "2-MDD",
+      "route_id": 5,
+      "route_name": "Mernda",
+      "route_number": "",
+      "route_service_status": {
+        "description": "Good Service",
+        "timestamp": "2026-11-27T06:36:55.9113518+00:00"
+      },
+      "route_type": 0
+    },
+    {
+      "geopath": [],
+      "route_gtfs_id": "2-FKN",
+      "route_id": 6,
+      "route_name": "Frankston",
+      "route_number": "",
+      "route_service_status": {
+        "description": "Good Service",
+        "timestamp": "2026-11-27T06:36:55.9113518+00:00"
+      },
+      "route_type": 0
+    },
+    {
+      "geopath": [],
+      "route_gtfs_id": "2-GWY",
+      "route_id": 7,
+      "route_name": "Glen Waverley",
+      "route_number": "",
+      "route_service_status": {
+        "description": "Good Service",
+        "timestamp": "2026-11-27T06:36:55.9113518+00:00"
+      },
+      "route_type": 0
+    },
+    {
+      "geopath": [],
+      "route_gtfs_id": "2-HBE",
+      "route_id": 8,
+      "route_name": "Hurstbridge",
+      "route_number": "",
+      "route_service_status": {
+        "description": "Good Service",
+        "timestamp": "2026-11-27T06:36:55.9113518+00:00"
+      },
+      "route_type": 0
+    },
+    {
+      "geopath": [],
+      "route_gtfs_id": "2-LIL",
+      "route_id": 9,
+      "route_name": "Lilydale",
+      "route_number": "",
+      "route_service_status": {
+        "description": "Good Service",
+        "timestamp": "2026-11-27T06:36:55.9113518+00:00"
+      },
+      "route_type": 0
+    },
+    {
+      "geopath": [],
+      "route_gtfs_id": "2-PKM",
+      "route_id": 11,
+      "route_name": "Pakenham",
+      "route_number": "",
+      "route_service_status": {
+        "description": "Good Service",
+        "timestamp": "2026-11-27T06:36:55.9113518+00:00"
+      },
+      "route_type": 0
+    },
+    {
+      "geopath": [],
+      "route_gtfs_id": "2-SHM",
+      "route_id": 12,
+      "route_name": "Sandringham",
+      "route_number": "",
+      "route_service_status": {
+        "description": "Good Service",
+        "timestamp": "2026-11-27T06:36:55.9113518+00:00"
+      },
+      "route_type": 0
+    },
+    {
+      "geopath": [],
+      "route_gtfs_id": "2-STY",
+      "route_id": 13,
+      "route_name": "Stony Point",
+      "route_number": "",
+      "route_service_status": {
+        "description": "Good Service",
+        "timestamp": "2026-11-27T06:36:55.9113518+00:00"
+      },
+      "route_type": 0
+    },
+    {
+      "geopath": [],
+      "route_gtfs_id": "2-SUY",
+      "route_id": 14,
+      "route_name": "Sunbury",
+      "route_number": "",
+      "route_service_status": {
+        "description": "Good Service",
+        "timestamp": "2026-11-27T06:36:55.9113518+00:00"
+      },
+      "route_type": 0
+    },
+    {
+      "geopath": [],
+      "route_gtfs_id": "2-UFD",
+      "route_id": 15,
+      "route_name": "Upfield",
+      "route_number": "",
+      "route_service_status": {
+        "description": "Good Service",
+        "timestamp": "2026-11-27T06:36:55.9113518+00:00"
+      },
+      "route_type": 0
+    },
+    {
+      "geopath": [],
+      "route_gtfs_id": "2-WER",
+      "route_id": 16,
+      "route_name": "Werribee",
+      "route_number": "",
+      "route_service_status": {
+        "description": "Good Service",
+        "timestamp": "2026-11-27T06:36:55.9113518+00:00"
+      },
+      "route_type": 0
+    },
+    {
+      "geopath": [],
+      "route_gtfs_id": "2-WIL",
+      "route_id": 17,
+      "route_name": "Williamstown",
+      "route_number": "",
+      "route_service_status": {
+        "description": "Good Service",
+        "timestamp": "2026-11-27T06:36:55.9113518+00:00"
+      },
+      "route_type": 0
+    },
+    {
+      "geopath": [],
+      "route_gtfs_id": "2-RCE",
+      "route_id": 1482,
+      "route_name": "Flemington Racecourse",
+      "route_number": "",
+      "route_service_status": {
+        "description": "Good Service",
+        "timestamp": "2026-11-27T06:36:55.9113518+00:00"
+      },
+      "route_type": 0
+    }
+  ],
+  "status": {
+    "health": 1,
+    "version": "3.0"
+  }
+}
