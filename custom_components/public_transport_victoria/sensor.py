@@ -9,7 +9,6 @@ from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     UpdateFailed,
 )
-from homeassistant.const import ATTR_ATTRIBUTION
 from .const import ATTRIBUTION, DOMAIN
 from .PublicTransportVictoria.public_transport_victoria import PTVApiError
 
@@ -60,6 +59,10 @@ class PublicTransportVictoriaDataUpdateCoordinator(DataUpdateCoordinator):
 class PublicTransportVictoriaSensor(CoordinatorEntity, Entity):
     """Representation of a Public Transport Victoria Sensor."""
 
+    # Home Assistant renders this as the state attribution marker, so reading
+    # the attributes never needs to mutate the coordinator's departure data.
+    _attr_attribution = ATTRIBUTION
+
     def __init__(self, coordinator, number):
         """Initialize the sensor."""
         super().__init__(coordinator)
@@ -95,9 +98,11 @@ class PublicTransportVictoriaSensor(CoordinatorEntity, Entity):
 
     @property
     def extra_state_attributes(self):
-        """Return the state attributes of the sensor."""
+        """Return the state attributes of the sensor.
+
+        A shallow copy keeps coordinator data immutable while preserving every
+        raw departure field.  Attribution comes from ``_attr_attribution``.
+        """
         if len(self.coordinator.data) > self._number:
-            attr = self.coordinator.data[self._number]
-            attr[ATTR_ATTRIBUTION] = ATTRIBUTION
-            return attr
+            return dict(self.coordinator.data[self._number])
         return {}

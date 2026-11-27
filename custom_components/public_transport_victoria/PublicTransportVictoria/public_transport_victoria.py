@@ -7,7 +7,6 @@ import logging
 from hashlib import sha1
 
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.util import Throttle
 from homeassistant.util.dt import get_time_zone
 
 from .redact import sanitise_request
@@ -16,7 +15,6 @@ from .redact import sanitise_request
 BASE_URL = "https://timetableapi.ptv.vic.gov.au"
 DEPARTURES_PATH = "/v3/departures/route_type/{}/stop/{}/route/{}?direction_id={}&max_results={}"
 DIRECTIONS_PATH = "/v3/directions/route/{}"
-MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(minutes=2)
 MAX_RESULTS = 5
 ROUTE_TYPES_PATH = "/v3/route_types"
 ROUTES_PATH = "/v3/routes?route_types={}"
@@ -156,12 +154,15 @@ class Connector:
                 "Could not reach the PTV API for {}".format(operation)
             ) from err
 
-    async def _init(self):
-        """Async Init Public Transport Victoria connector."""
+    def prepare(self):
+        """Compute the departures request path.
+
+        This performs no network I/O.  The DataUpdateCoordinator owns the only
+        initial fetch, so setup cannot leave a second, throttled request behind.
+        """
         self.departures_path = DEPARTURES_PATH.format(
             self.route_type, self.stop, self.route, self.direction, MAX_RESULTS
         )
-        await self.async_update()
 
     async def async_route_types(self):
         """Get route types from Public Transport Victoria API."""
@@ -239,7 +240,6 @@ class Connector:
         _LOGGER.debug("Fetched stops: %d", len(stops))
         return stops
 
-    @Throttle(MIN_TIME_BETWEEN_UPDATES)
     async def async_update(self):
         """Update the departure information.
 
