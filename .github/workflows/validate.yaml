@@ -1,16 +1,30 @@
-name: Validate with hassfest
+name: Validate integration
 
 on:
   push:
+    branches:
+      - master
   pull_request:
   schedule:
-    - cron: "0 0 * * *"
+    # Weekly compatibility check against current Home Assistant tooling.
+    - cron: "0 6 * * 1"
 
 jobs:
-  validate-hacs:
+  hassfest:
+    name: hassfest
     runs-on: "ubuntu-latest"
     steps:
-      - uses: "actions/checkout@v3"
+      - name: Check out repository
+        uses: "actions/checkout@v4"
+      - name: hassfest validation
+        uses: "home-assistant/actions/hassfest@master"
+
+  hacs:
+    name: HACS validation
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: Check out repository
+        uses: "actions/checkout@v4"
       - name: HACS validation
         uses: "hacs/action@main"
         with:

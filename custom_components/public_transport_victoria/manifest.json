@@ -2,6 +2,8 @@
   "domain": "public_transport_victoria",
   "name": "Public Transport Victoria",
   "config_flow": true,
+  "iot_class": "cloud_polling",
+  "integration_type": "service",
   "documentation": "https://github.com/bremor/public_transport_victoria",
   "issue_tracker": "https://github.com/bremor/public_transport_victoria/issues",
   "requirements": [],
