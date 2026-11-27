@@ -17,6 +17,7 @@ import copy
 import datetime
 import inspect
 import json
+import logging
 import sys
 import types
 from pathlib import Path
@@ -461,6 +462,81 @@ async def test_async_update_derived_mixed_fixture(fake_api):
     estimates = [row["estimated_departure_utc"] for row in connector.departures]
     assert estimates[0] is None
     assert any(value is not None for value in estimates)
+
+
+# ---------------------------------------------------------------------------
+# P1.7: only the configured route's departures are kept (issue #34)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("configured_route", [6, "6"])
+async def test_async_update_filters_to_configured_route(
+    fake_api, caplog, configured_route
+):
+    """Mixed-route rows are filtered before any run lookup or processing.
+
+    The fixture rows use numeric ``route_id`` values.  One kept row carries a
+    string ``route_id`` so both int- and string-configured routes prove the
+    normalised comparison, and the drop is logged as a count only.
+    """
+    wire_happy_path(fake_api)
+    rows = copy.deepcopy(RECORDED_DEPARTURES[:4])
+    rows[0]["route_id"] = 6           # matches as an int
+    rows[1]["route_id"] = "6"         # matches as a string
+    rows[2]["route_id"] = 11          # different route
+    del rows[3]["route_id"]           # missing provenance
+    fake_api.add(REQUEST_DEPARTURES, {"departures": rows})
+    connector = make_connector(route=configured_route)
+
+    caplog.set_level(logging.DEBUG)
+    await prepare_and_update(connector)
+
+    assert [row["run_id"] for row in connector.departures] == [
+        rows[0]["run_id"],
+        rows[1]["run_id"],
+    ]
+    assert all(row["route_id"] in (6, "6") for row in connector.departures)
+    # Run lookups only happen for the kept rows; the dropped rows never reach
+    # the /v3/runs endpoint.
+    assert fake_api.requests == [
+        DEPARTURES_PATH,
+        "/v3/runs/{}".format(rows[0]["run_id"]),
+        "/v3/runs/{}".format(rows[1]["run_id"]),
+    ]
+    assert (
+        "filtered 2 departure row(s) not matching the configured route"
+        in caplog.text
+    )
+    # Count-only logging: no dropped ids or payloads leak into the log.
+    assert str(rows[2]["run_id"]) not in caplog.text
+    assert str(rows[3]["run_id"]) not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_async_update_all_rows_filtered_is_empty_success(fake_api, caplog, hass):
+    """Every row for another route is an empty, successful update."""
+    wire_happy_path(fake_api)
+    rows = copy.deepcopy(RECORDED_DEPARTURES[:2])
+    rows[0]["route_id"] = 11
+    del rows[1]["route_id"]
+    fake_api.add(REQUEST_DEPARTURES, {"departures": rows})
+    connector = make_connector()
+    connector.prepare()
+    coordinator = make_coordinator(hass, connector)
+
+    caplog.set_level(logging.DEBUG)
+    await coordinator.async_config_entry_first_refresh()
+
+    assert coordinator.last_update_success is True
+    assert coordinator.data == []
+    assert connector.departures == []
+    # Empty is a valid result, not a failure: no run lookups were attempted.
+    assert fake_api.requests == [DEPARTURES_PATH]
+    assert (
+        "filtered 2 departure row(s) not matching the configured route"
+        in caplog.text
+    )
 
 
 @pytest.mark.asyncio
