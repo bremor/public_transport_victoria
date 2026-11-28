@@ -69,5 +69,40 @@
       "title": "PTV changed some timetable IDs for {entry_title}",
       "description": "Departures for {entry_title} keep coming back empty and the diagnosis points at stale timetable IDs ({what}). {detail}\n\nConfigured IDs: {configured}.\n\n{candidate}\n\n{remedy} If you choose the same route, direction and stop, your existing entities are restored."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "PTV timetable IDs",
+        "description": "Check whether this entry's stored route, direction and stop IDs still match PTV's live timetable data.",
+        "menu_options": {
+          "check_ids": "Check PTV timetable IDs now"
+        }
+      },
+      "confirm_apply": {
+        "title": "Update timetable IDs for {route_name}",
+        "description": "Route {old_route_id} -> {new_route_id}, direction {old_direction_id} -> {new_direction_id}, stop {old_stop_id} -> {new_stop_id} (GTFS {route_gtfs_id}).\n\nDetected: {detail}\n\nOnly the numeric IDs are updated; entity names stay unchanged. Select **Submit** to apply and reload this entry."
+      },
+      "healthy": {
+        "title": "Timetable IDs are healthy",
+        "description": "No PTV ID changes detected for {route_name}: route {old_route_id}, direction {old_direction_id}, stop {old_stop_id} (GTFS {route_gtfs_id}). Select **Submit** to close."
+      },
+      "applied": {
+        "title": "Timetable IDs updated",
+        "description": "Route {old_route_id} -> {new_route_id}, direction {old_direction_id} -> {new_direction_id}, stop {old_stop_id} -> {new_stop_id}. Entity names are unchanged; the entry is reloading now. Select **Submit** to close."
+      },
+      "manual": {
+        "title": "Manual check needed for {route_name}",
+        "description": "{detail}\n\nConfigured IDs: {configured}.\n\n{candidate}\n\n{remedy} If you choose the same route, direction and stop, your existing entities are restored. Select **Submit** to close."
+      },
+      "cooldown": {
+        "title": "ID check ran recently",
+        "description": "A timetable ID check ran for {route_name} in the last 6 hours. Wait for the window to pass, or rely on automatic detection. Select **Submit** to close."
+      }
+    },
+    "abort": {
+      "entry_not_found": "This config entry no longer exists.",
+      "entry_not_loaded": "This entry must be loaded and enabled before its IDs can be checked."
+    }
   }
 }

@@ -387,22 +387,34 @@ class Connector:
             return None, "no entry matched the configured name"
         return None, "several entries matched the configured name"
 
-    async def _async_backfill_gtfs(self):
-        """Capture the configured route's GTFS id with one tiny call."""
-        if self.gtfs_id is not None or self.route is None:
-            return
+    async def _async_fetch_route_record(self):
+        """Return the configured route's single-record response, or None.
+
+        Any typed API failure is downgraded to a debug log: an audit or a GTFS
+        backfill must never fail the caller.  The record is verified to carry
+        the configured numeric route id.
+        """
+        if self.route is None:
+            return None
         path = ROUTE_PATH.format(self.route, self.route_type)
         try:
             response = await self._async_get_json(
                 build_URL(self.id, self.api_key, path), "route check"
             )
         except PTVApiError as err:
-            _LOGGER.debug("PTV: route gtfs backfill failed: %s", err)
-            return
+            _LOGGER.debug("PTV: route record check failed: %s", err)
+            return None
         route = response.get("route")
         if not isinstance(route, dict):
+            return None
+        return route
+
+    async def _async_backfill_gtfs(self):
+        """Capture the configured route's GTFS id with one tiny call."""
+        if self.gtfs_id is not None or self.route is None:
             return
-        if str(route.get("route_id")) != str(self.route):
+        route = await self._async_fetch_route_record()
+        if route is None or str(route.get("route_id")) != str(self.route):
             return
         gtfs_id = route.get("route_gtfs_id")
         if gtfs_id:
@@ -436,14 +448,18 @@ class Connector:
         result["reason"] = "matched the configured direction name"
         return result
 
-    async def _resolve_route(self, result):
-        """Find the route (and direction) whose names match the configured ones."""
+    async def _async_resolve_route_candidate(self):
+        """Find a verified replacement route/direction/stop, or abstain.
+
+        Returns ``(candidate, reason)``; ``candidate`` is None when the route
+        list could not be fetched, no route matched, the match was ambiguous,
+        or the stop/direction names did not verify on the candidate route.
+        """
         try:
             routes = await self._async_route_candidates()
         except PTVApiError as err:
             _LOGGER.debug("PTV: route resolution failed: %s", err)
-            result["reason"] = "could not fetch the route list"
-            return result
+            return None, "could not fetch the route list"
 
         if self.gtfs_id is not None:
             matches = [
@@ -464,10 +480,8 @@ class Connector:
         )
         if len(route_ids) != 1:
             if not route_ids:
-                result["reason"] = "no route matched by {}".format(basis)
-            else:
-                result["reason"] = "several routes matched by {}".format(basis)
-            return result
+                return None, "no route matched by {}".format(basis)
+            return None, "several routes matched by {}".format(basis)
 
         candidate_route = route_ids[0]
         route_record = matches[0]
@@ -477,18 +491,114 @@ class Connector:
             directions = await self._async_route_directions(candidate_route)
         except PTVApiError as err:
             _LOGGER.debug("PTV: candidate route verification failed: %s", err)
-            result["reason"] = "could not verify the candidate route"
-            return result
+            return None, "could not verify the candidate route"
 
         stop_id, reason = self._match_names(
             self.stop_name,
             [(str(s.get("stop_id")), s.get("stop_name")) for s in stops],
         )
         if stop_id is None:
-            result["reason"] = (
+            return None, (
                 "the configured stop name is not unambiguous on the "
                 "candidate route: " + reason
             )
+
+        direction_id, reason = self._match_names(
+            self.direction_name,
+            [
+                (str(d.get("direction_id")), d.get("direction_name"))
+                for d in directions
+            ],
+        )
+        if direction_id is None:
+            return None, "the configured direction name: " + reason
+
+        return (
+            {
+                "route": candidate_route,
+                "direction": direction_id,
+                "stop": stop_id,
+                "gtfs": route_record.get("route_gtfs_id") or self.gtfs_id,
+            },
+            "",
+        )
+
+    async def _resolve_route(self, result):
+        """Fill ``result`` from a verified route/direction/stop candidate."""
+        candidate, reason = await self._async_resolve_route_candidate()
+        if candidate is None:
+            result["reason"] = reason
+            return result
+        result["candidate"].update(candidate)
+        result["resolved"] = True
+        result["reason"] = "matched the configured names on route {}".format(
+            candidate["route"]
+        )
+        return result
+
+    async def audit_identity(self) -> dict:
+        """Audit the stored ids against PTV's live timetable data.
+
+        Unlike :meth:`resolve_candidate` this needs no empty poll: it is the
+        user-initiated "check my ids now" path.  Status is ``healthy`` (all ids
+        match), ``changed`` (route alive but direction/stop moved), ``stale``
+        (route id/GTFS identity gone but a verified replacement exists) or
+        ``abstain`` (API failure or ambiguous names; no fix proposed).  The
+        mapping always carries the ids to display, never to write directly.
+        """
+        stored = {
+            "route": None if self.route is None else str(self.route),
+            "direction": (
+                None if self.direction is None else str(self.direction)
+            ),
+            "stop": None if self.stop is None else str(self.stop),
+            "gtfs": self.gtfs_id,
+        }
+        result = {
+            "status": "abstain",
+            "what": "unknown",
+            "mapping": dict(stored),
+            "reason": "",
+        }
+
+        route_record = await self._async_fetch_route_record()
+        route_alive = (
+            route_record is not None
+            and str(route_record.get("route_id")) == stored["route"]
+        )
+        if route_alive:
+            live_gtfs = route_record.get("route_gtfs_id")
+            if (
+                self.gtfs_id
+                and live_gtfs
+                and str(live_gtfs) != str(self.gtfs_id)
+            ):
+                # Same numeric slot, different GTFS identity: the route moved.
+                route_alive = False
+            elif live_gtfs:
+                self.gtfs_id = str(live_gtfs)
+                result["mapping"]["gtfs"] = self.gtfs_id
+
+        if not route_alive:
+            result["what"] = "route"
+            candidate, reason = await self._async_resolve_route_candidate()
+            if candidate is None:
+                result["reason"] = reason
+                return result
+            candidate["gtfs"] = candidate.get("gtfs") or self.gtfs_id
+            result.update(
+                status="stale",
+                mapping=candidate,
+                reason="the route id has changed",
+            )
+            return result
+
+        try:
+            directions = await self._async_route_directions(self.route)
+            stops = await self._async_route_stops(self.route)
+        except PTVApiError as err:
+            _LOGGER.debug("PTV: identity audit failed: %s", err)
+            result["reason"] = "the timetable could not be checked"
             return result
 
         direction_id, reason = self._match_names(
@@ -499,18 +609,43 @@ class Connector:
             ],
         )
         if direction_id is None:
+            result["what"] = "direction"
             result["reason"] = "the configured direction name: " + reason
             return result
 
-        candidate = result["candidate"]
-        candidate["route"] = candidate_route
-        candidate["direction"] = direction_id
-        candidate["stop"] = stop_id
-        candidate["gtfs"] = route_record.get("route_gtfs_id") or self.gtfs_id
-        result["resolved"] = True
-        result["reason"] = "matched the configured names on route {}".format(
-            candidate_route
+        stop_id, reason = self._match_names(
+            self.stop_name,
+            [(str(s.get("stop_id")), s.get("stop_name")) for s in stops],
         )
+        if stop_id is None:
+            result["what"] = "stop"
+            result["reason"] = "the configured stop name: " + reason
+            return result
+
+        result["mapping"].update(
+            {
+                "route": stored["route"],
+                "direction": direction_id,
+                "stop": stop_id,
+            }
+        )
+        if (
+            direction_id == stored["direction"]
+            and stop_id == stored["stop"]
+        ):
+            result.update(
+                status="healthy", reason="all configured ids match"
+            )
+        else:
+            result.update(
+                status="changed",
+                what=(
+                    "direction"
+                    if direction_id != stored["direction"]
+                    else "stop"
+                ),
+                reason="the direction or stop id has changed",
+            )
         return result
 
     async def resolve_candidate(self) -> dict:

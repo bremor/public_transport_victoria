@@ -5,6 +5,7 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.const import CONF_API_KEY, CONF_ID
+from homeassistant.core import callback
 
 from .const import (
     CONF_DIRECTION, 
@@ -24,6 +25,15 @@ from .PublicTransportVictoria.public_transport_victoria import (
     PTVServiceError,
 )
 from .PublicTransportVictoria.redact import redact_config
+from .repairs import (
+    async_apply_stale_id_fix,
+    async_run_identity_audit,
+    entry_mapping,
+    fix_placeholders,
+    in_diag_cooldown,
+    manual_placeholders,
+    mapping_placeholders,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -70,6 +80,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Public Transport Victoria."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry):
+        """Return the options flow for this entry."""
+        return OptionsFlowHandler()
 
     async def async_step_user(self, user_input=None):
         """Handle the initial step."""
@@ -269,4 +285,159 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # If there is no user input, show the form.
         return self.async_show_form(
             step_id="stops", data_schema=data_schema, errors=errors
+        )
+
+
+class OptionsFlowHandler(config_entries.OptionsFlow):
+    """Manual timetable-id check for a configured entry.
+
+    The audit is deliberately independent of empty polls: users notice stale
+    ids first.  It reuses the connector's ``audit_identity`` and the shared
+    verified-apply helper, so fixing ids here is exactly as safe as fixing
+    them from the repair issue.
+    """
+
+    def __init__(self):
+        """Initialise the options flow."""
+        self._audit = None
+        self._candidate = {}
+        self._old_mapping = {}
+        super().__init__()
+
+    async def async_step_init(self, user_input=None):
+        """Offer the single maintenance action."""
+        return self.async_show_menu(
+            step_id="init", menu_options=["check_ids"]
+        )
+
+    async def async_step_check_ids(self, user_input=None):
+        """Audit the stored ids against PTV's live data."""
+        entry = self.config_entry
+        if (
+            entry.state is not config_entries.ConfigEntryState.LOADED
+            or getattr(entry, "disabled_by", None) is not None
+        ):
+            return self.async_abort(reason="entry_not_loaded")
+
+        self._old_mapping = entry_mapping(entry)
+        if in_diag_cooldown(entry):
+            # Shared cooldown: automatic detection and the previous manual
+            # run already probed recently.  Do not touch the API.
+            return await self.async_step_cooldown()
+
+        audit = await async_run_identity_audit(self.hass, entry)
+        self._audit = audit
+        status = audit.get("status")
+        mapping = audit.get("mapping") or {}
+        if (
+            status in ("changed", "stale")
+            and mapping.get("route")
+            and mapping.get("direction")
+            and mapping.get("stop")
+        ):
+            self._candidate = mapping
+            return self.async_show_form(
+                step_id="confirm_apply",
+                data_schema=vol.Schema({}),
+                description_placeholders=fix_placeholders(
+                    entry, mapping, audit.get("reason", "")
+                ),
+            )
+        if status == "healthy":
+            return await self.async_step_healthy()
+        return await self.async_step_manual()
+
+    async def async_step_confirm_apply(self, user_input=None):
+        """Show the id mapping, then apply it via the shared helper."""
+        entry = self.config_entry
+        if user_input is None:
+            return self.async_show_form(
+                step_id="confirm_apply",
+                data_schema=vol.Schema({}),
+                description_placeholders=fix_placeholders(
+                    entry,
+                    self._candidate,
+                    (self._audit or {}).get("reason", ""),
+                ),
+            )
+
+        outcome = await async_apply_stale_id_fix(
+            self.hass, entry, self._candidate
+        )
+        if outcome == "entry_not_found":
+            return self.async_abort(reason="entry_not_found")
+        if outcome == "entry_not_loaded":
+            return self.async_abort(reason="entry_not_loaded")
+        if outcome == "failed":
+            # The shared helper already left manual instructions behind.
+            self._audit = {
+                "status": "abstain",
+                "what": (self._audit or {}).get("what", "unknown"),
+                "mapping": self._candidate,
+                "reason": "the timetable changed again while this check was open",
+            }
+            return await self.async_step_manual()
+        if outcome == "unchanged":
+            return await self.async_step_healthy()
+        return await self.async_step_applied()
+
+    async def async_step_healthy(self, user_input=None):
+        """Done step: no id changes were detected."""
+        if user_input is not None:
+            return self._async_done()
+        return self.async_show_form(
+            step_id="healthy",
+            data_schema=vol.Schema({}),
+            description_placeholders=fix_placeholders(
+                self.config_entry,
+                self._old_mapping,
+                (self._audit or {}).get("reason", ""),
+            ),
+        )
+
+    async def async_step_manual(self, user_input=None):
+        """Done step: no safe automatic fix; manual instructions."""
+        if user_input is not None:
+            return self._async_done()
+        return self.async_show_form(
+            step_id="manual",
+            data_schema=vol.Schema({}),
+            description_placeholders=manual_placeholders(
+                self.config_entry, self._audit
+            ),
+        )
+
+    async def async_step_applied(self, user_input=None):
+        """Done step: verified ids were written and a reload was scheduled."""
+        if user_input is not None:
+            return self._async_done()
+        return self.async_show_form(
+            step_id="applied",
+            data_schema=vol.Schema({}),
+            description_placeholders=mapping_placeholders(
+                self._old_mapping,
+                self._candidate,
+                self.config_entry.data.get(CONF_ROUTE_NAME),
+                "verified against PTV",
+            ),
+        )
+
+    async def async_step_cooldown(self, user_input=None):
+        """Done step: an id check already ran inside the shared window."""
+        if user_input is not None:
+            return self._async_done()
+        return self.async_show_form(
+            step_id="cooldown",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "route_name": self.config_entry.data.get(
+                    CONF_ROUTE_NAME, ""
+                )
+            },
+        )
+
+    def _async_done(self):
+        """Close the options flow without changing entry options."""
+        return self.async_create_entry(
+            data=dict(self.config_entry.options)
         )

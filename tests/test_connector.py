@@ -81,6 +81,7 @@ Connector = connector_module.Connector
 
 from custom_components.public_transport_victoria import sensor as sensor_module  # noqa: E402
 from custom_components.public_transport_victoria import repairs as repairs_module  # noqa: E402
+from custom_components.public_transport_victoria import config_flow as config_flow_module  # noqa: E402
 from custom_components.public_transport_victoria.const import (  # noqa: E402
     CONF_DIRECTION,
     CONF_DIRECTION_NAME,
@@ -379,6 +380,7 @@ async def churn_on_real_entry(fake_api, hass):
         {"route": {"route_id": 6, "route_gtfs_id": "2-FKN"}},
     )
     fake_api.add(DIRECTIONS_PATH, fixture("directions-frankston.json"))
+    fake_api.add(STOPS_PATH, fixture("stops-frankston.json"))
     entry = await add_real_entry(hass, {CONF_DIRECTION: STALE_DIRECTION})
     connector = make_connector(
         direction=STALE_DIRECTION,
@@ -1363,7 +1365,12 @@ async def test_repair_flow_is_idempotent_when_candidate_matches_stored(
     result = await manager.async_configure(result["flow_id"], {})
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert dict(entry.data) == data_before
+    assert {
+        key: value
+        for key, value in entry.data.items()
+        if key != "diag_next_ok_at"
+    } == data_before
+    assert entry.data["diag_next_ok_at"]
     assert reloads == []
     assert issue_for(hass) is None
 
@@ -1393,7 +1400,11 @@ async def test_repair_flow_downgrades_issue_when_reverification_fails(
     assert issue is not None
     assert issue.is_fixable is False
     assert issue.translation_key == MANUAL_TRANSLATION_KEY
-    assert dict(entry.data) == data_before
+    assert {
+        key: value
+        for key, value in entry.data.items()
+        if key != "diag_next_ok_at"
+    } == data_before
     assert reloads == []
 
 
@@ -1459,6 +1470,226 @@ async def test_post_fix_reload_cooldown_blocks_new_diagnosis(fake_api, hass):
     assert fake_api.requests[before:] == [DEPARTURES_PATH]
     assert dict(entry.data) == data_after_fix
     assert issue_for(hass) is None
+
+
+# ---------------------------------------------------------------------------
+# 0.8.5 options flow: manual "check timetable IDs now"
+# ---------------------------------------------------------------------------
+
+
+def instrument_entry(hass):
+    """Record data writes (not options writes) and reload requests."""
+    writes = []
+    reloads = []
+    real_update = hass.config_entries.async_update_entry
+
+    def record_update(target, *, data=None, **kwargs):
+        if data is not None:
+            writes.append(dict(data))
+            return real_update(target, data=data, **kwargs)
+        return real_update(target, **kwargs)
+
+    hass.config_entries.async_update_entry = record_update
+    hass.config_entries.async_schedule_reload = reloads.append
+    return writes, reloads
+
+
+async def start_options_flow(hass):
+    """Open the options flow and choose the id check."""
+    register_config_flow(hass)
+    result = await hass.config_entries.options.async_init(ENTRY_ID)
+    assert result["type"] is FlowResultType.MENU
+    return await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "check_ids"}
+    )
+
+
+def register_config_flow(hass):
+    """Register the config-flow handler for the options-flow manager.
+
+    The HA test harness has no installed integration package, so the options
+    manager cannot load ``public_transport_victoria.config_flow`` through the
+    loader.  Marking the module loaded is the same seam the manager checks.
+    """
+    from homeassistant import loader
+    from homeassistant.config_entries import HANDLERS
+
+    HANDLERS.register(DOMAIN)(config_flow_module.ConfigFlow)
+    hass.data.setdefault(loader.DATA_COMPONENTS, {})[
+        "{}.config_flow".format(DOMAIN)
+    ] = config_flow_module
+
+
+def wire_healthy_audit(fake_api):
+    """Responses needed by an audit: route record, directions, stops."""
+    fake_api.add(
+        ROUTE_INFO_PATH,
+        {"route": {"route_id": 6, "route_gtfs_id": "2-FKN"}},
+    )
+    fake_api.add(DIRECTIONS_PATH, fixture("directions-frankston.json"))
+    fake_api.add(STOPS_PATH, fixture("stops-frankston.json"))
+
+
+@pytest.mark.asyncio
+async def test_options_flow_menu_offers_single_check(fake_api, hass):
+    entry = await add_real_entry(hass)
+    assert config_flow_module.ConfigFlow.async_supports_options_flow(entry)
+
+    register_config_flow(hass)
+    result = await hass.config_entries.options.async_init(ENTRY_ID)
+
+    assert result["type"] is FlowResultType.MENU
+    assert result["step_id"] == "init"
+    assert result["menu_options"] == ["check_ids"]
+
+
+@pytest.mark.asyncio
+async def test_options_flow_healthy_audit_stamps_cooldown_only(fake_api, hass):
+    wire_healthy_audit(fake_api)
+    entry = await add_real_entry(hass, {"route_gtfs_id": "2-FKN"})
+    create_fixable_issue(hass, entry)
+    issue_before = issue_for(hass)
+    names = (CONF_ROUTE_NAME, CONF_DIRECTION_NAME, CONF_STOP_NAME)
+    names_before = {key: entry.data[key] for key in names}
+    writes, reloads = instrument_entry(hass)
+
+    result = await start_options_flow(hass)
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "healthy"
+    assert result["description_placeholders"]["old_route_id"] == "6"
+    assert result["description_placeholders"]["new_route_id"] == "6"
+    # One bounded write: the cooldown stamp (GTFS was already stored).
+    assert len(writes) == 1
+    assert writes[0]["diag_next_ok_at"]
+    assert writes[0]["route_gtfs_id"] == "2-FKN"
+    assert {key: entry.data[key] for key in names} == names_before
+    assert reloads == []
+    # A healthy audit must never delete an existing issue; only a poll does.
+    assert issue_for(hass) is issue_before
+    # No departures request: the audit is independent of polling.
+    assert DEPARTURES_PATH not in fake_api.requests
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+@pytest.mark.asyncio
+async def test_options_flow_changed_direction_applies_verified_ids(fake_api, hass):
+    wire_healthy_audit(fake_api)
+    entry = await add_real_entry(
+        hass, {CONF_DIRECTION: STALE_DIRECTION, "route_gtfs_id": "2-FKN"}
+    )
+    names = (CONF_ROUTE_NAME, CONF_DIRECTION_NAME, CONF_STOP_NAME)
+    names_before = {key: entry.data[key] for key in names}
+    writes, reloads = instrument_entry(hass)
+
+    result = await start_options_flow(hass)
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "confirm_apply"
+    assert result["description_placeholders"]["old_direction_id"] == "17"
+    assert result["description_placeholders"]["new_direction_id"] == "5"
+    # The audit stamped the cooldown and raised the fixable issue.
+    assert len(writes) == 1
+    issue = issue_for(hass)
+    assert issue is not None and issue.is_fixable is True
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {}
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "applied"
+    assert entry.data[CONF_ROUTE] == "6"
+    assert entry.data[CONF_DIRECTION] == "5"
+    assert entry.data[CONF_STOP] == "1071"
+    assert entry.data["route_gtfs_id"] == "2-FKN"
+    assert entry.data["diag_next_ok_at"]
+    assert {key: entry.data[key] for key in names} == names_before
+    # One audit write + one apply write, both bounded.
+    assert len(writes) == 2
+    assert reloads == [ENTRY_ID]
+    # The options flow leaves issue cleanup to the next healthy poll.
+    assert issue_for(hass) is not None
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+@pytest.mark.asyncio
+async def test_options_flow_abstain_reports_manual_and_nonfixable_issue(
+    fake_api, hass
+):
+    # Route record missing and no unique route-list match: abstain.
+    fake_api.add(ROUTES_PATH, {"routes": []})
+    entry = await add_real_entry(hass, {"route_gtfs_id": "2-FKN"})
+    writes, reloads = instrument_entry(hass)
+
+    result = await start_options_flow(hass)
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "manual"
+    assert result["description_placeholders"]["remedy"]
+    issue = issue_for(hass)
+    assert issue is not None
+    assert issue.is_fixable is False
+    assert issue.translation_key == MANUAL_TRANSLATION_KEY
+    assert len(writes) == 1
+    assert writes[0]["diag_next_ok_at"]
+    assert reloads == []
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+@pytest.mark.asyncio
+async def test_options_flow_cooldown_reports_without_probing(fake_api, hass):
+    until = (
+        datetime.datetime.now(datetime.timezone.utc)
+        + datetime.timedelta(hours=1)
+    ).isoformat()
+    entry = await add_real_entry(hass, {"diag_next_ok_at": until})
+    writes, reloads = instrument_entry(hass)
+    before = len(fake_api.requests)
+
+    result = await start_options_flow(hass)
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "cooldown"
+    assert len(fake_api.requests) == before
+    assert writes == []
+    assert reloads == []
+    assert issue_for(hass) is None
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+@pytest.mark.asyncio
+async def test_options_flow_aborts_when_entry_not_loaded(fake_api, hass):
+    entry = MockConfigEntry(
+        domain=DOMAIN, data=dict(BASE_ENTRY_DATA), entry_id=ENTRY_ID
+    )
+    entry.add_to_hass(hass)  # stays NOT_LOADED
+    before = len(fake_api.requests)
+    writes, reloads = instrument_entry(hass)
+
+    result = await start_options_flow(hass)
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "entry_not_loaded"
+    assert len(fake_api.requests) == before
+    assert writes == []
+    assert reloads == []
 
 
 @pytest.mark.asyncio
@@ -1899,3 +2130,32 @@ def test_stale_ids_repair_translations_are_mirrored():
         "remedy",
     ):
         assert "{" + placeholder + "}" in manual_text
+
+    assert strings["options"] == english["options"]
+    options = strings["options"]["step"]
+    assert set(options) >= {
+        "init",
+        "confirm_apply",
+        "healthy",
+        "applied",
+        "manual",
+        "cooldown",
+    }
+    assert options["init"]["menu_options"]["check_ids"]
+    confirm = options["confirm_apply"]["title"] + options["confirm_apply"]["description"]
+    for placeholder in (
+        "route_name",
+        "old_route_id",
+        "new_route_id",
+        "old_direction_id",
+        "new_direction_id",
+        "old_stop_id",
+        "new_stop_id",
+        "route_gtfs_id",
+        "detail",
+    ):
+        assert "{" + placeholder + "}" in confirm
+    assert set(strings["options"]["abort"]) == {
+        "entry_not_found",
+        "entry_not_loaded",
+    }

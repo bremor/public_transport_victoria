@@ -19,6 +19,7 @@ from .PublicTransportVictoria.public_transport_victoria import (
 from .repairs import (
     async_create_stale_ids_issue,
     async_delete_stale_ids_issue,
+    async_persist_entry_data,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -136,11 +137,7 @@ class PublicTransportVictoriaDataUpdateCoordinator(DataUpdateCoordinator):
 
     def _persist_entry_data(self, entry, updates):
         """Merge ``updates`` into a fresh copy of entry.data and write once."""
-        if not updates:
-            return
-        data = dict(entry.data)
-        data.update(updates)
-        self.hass.config_entries.async_update_entry(entry, data=data)
+        async_persist_entry_data(self.hass, entry, updates)
 
     async def _async_handle_empty(self):
         """Apply the quiet gate + cooldown, diagnose, then repair if needed."""
