@@ -44,5 +44,30 @@
       "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
       "no_options": "Public Transport Victoria returned no options. Try again later."
     }
+  },
+  "issues": {
+    "stale_ptv_ids": {
+      "title": "PTV changed timetable IDs for {route_name}",
+      "description": "Departures for {route_name} keep coming back empty because PTV renumbered its timetable IDs.\n\nRoute {old_route_id} -> {new_route_id}, direction {old_direction_id} -> {new_direction_id}, stop {old_stop_id} -> {new_stop_id} (GTFS {route_gtfs_id}).\n\nDetected: {detail}\n\nSelect **Submit** to update the IDs and reload the entry. Only the numeric IDs change - your entity names stay exactly the same.",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Update timetable IDs for {route_name}",
+            "description": "Route {old_route_id} -> {new_route_id}, direction {old_direction_id} -> {new_direction_id}, stop {old_stop_id} -> {new_stop_id} (GTFS {route_gtfs_id}).\n\nDetected: {detail}\n\nOnly the numeric IDs are updated; entity names stay unchanged. Select **Submit** to apply and reload this entry."
+          }
+        },
+        "error": {
+          "verification_failed": "PTV's timetable IDs changed again while this fix was open and the new IDs could not be verified. This issue now has manual instructions."
+        },
+        "abort": {
+          "entry_not_found": "This config entry no longer exists.",
+          "entry_not_loaded": "This entry must be loaded and enabled before the fix can be applied."
+        }
+      }
+    },
+    "stale_ptv_ids_manual": {
+      "title": "PTV changed some timetable IDs for {entry_title}",
+      "description": "Departures for {entry_title} keep coming back empty and the diagnosis points at stale timetable IDs ({what}). {detail}\n\nConfigured IDs: {configured}.\n\n{candidate}\n\n{remedy} If you choose the same route, direction and stop, your existing entities are restored."
+    }
   }
 }
