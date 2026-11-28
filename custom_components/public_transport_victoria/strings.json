@@ -48,7 +48,6 @@
   "issues": {
     "stale_ptv_ids": {
       "title": "PTV changed timetable IDs for {route_name}",
-      "description": "Departures for {route_name} keep coming back empty because PTV renumbered its timetable IDs.\n\nRoute {old_route_id} -> {new_route_id}, direction {old_direction_id} -> {new_direction_id}, stop {old_stop_id} -> {new_stop_id} (GTFS {route_gtfs_id}).\n\nDetected: {detail}\n\nSelect **Submit** to update the IDs and reload the entry. Only the numeric IDs change - your entity names stay exactly the same.",
       "fix_flow": {
         "step": {
           "confirm": {
