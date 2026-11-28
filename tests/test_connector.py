@@ -1152,7 +1152,7 @@ async def test_streak_survives_rebuild_and_second_window_raises_issue(
     assert issue_for(hass) is None
     assert coordinator.test_entry.data["diag_streak"] == 1
 
-    # The 6 h window passes, then a reload builds a new coordinator instance.
+    # The 48 h window passes, then a reload builds a new coordinator instance.
     expire_cooldown(coordinator.test_entry)
     coordinator2 = make_coordinator(
         hass, make_stale_connector(), entry=coordinator.test_entry
