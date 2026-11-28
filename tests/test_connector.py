@@ -2221,7 +2221,9 @@ def test_stale_ids_repair_translations_are_mirrored():
     assert strings["issues"] == english["issues"]
 
     fixable = strings["issues"]["stale_ptv_ids"]
-    fix_text = fixable["title"] + fixable["description"]
+    # hassfest: fixable issues carry title + fix_flow only (description and
+    # fix_flow sit in the same voluptuous exclusion group).
+    fix_text = fixable["title"]
     confirm = fixable["fix_flow"]["step"]["confirm"]
     fix_text += confirm["title"] + confirm["description"]
     for placeholder in (
