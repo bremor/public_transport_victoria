@@ -30,7 +30,6 @@ from .repairs import (
     async_run_identity_audit,
     entry_mapping,
     fix_placeholders,
-    in_diag_cooldown,
     manual_placeholders,
     mapping_placeholders,
 )
@@ -311,7 +310,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         )
 
     async def async_step_check_ids(self, user_input=None):
-        """Audit the stored ids against PTV's live data."""
+        """Audit the stored ids against PTV's live data.
+
+        A manual check bypasses the automatic cooldown (the user asked
+        explicitly) and completes a pending stale streak: if the audit is
+        stale and a previous window already counted one, the issue is raised.
+        """
         entry = self.config_entry
         if (
             entry.state is not config_entries.ConfigEntryState.LOADED
@@ -320,11 +324,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             return self.async_abort(reason="entry_not_loaded")
 
         self._old_mapping = entry_mapping(entry)
-        if in_diag_cooldown(entry):
-            # Shared cooldown: automatic detection and the previous manual
-            # run already probed recently.  Do not touch the API.
-            return await self.async_step_cooldown()
-
         audit = await async_run_identity_audit(self.hass, entry)
         self._audit = audit
         status = audit.get("status")
@@ -420,20 +419,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 self.config_entry.data.get(CONF_ROUTE_NAME),
                 "verified against PTV",
             ),
-        )
-
-    async def async_step_cooldown(self, user_input=None):
-        """Done step: an id check already ran inside the shared window."""
-        if user_input is not None:
-            return self._async_done()
-        return self.async_show_form(
-            step_id="cooldown",
-            data_schema=vol.Schema({}),
-            description_placeholders={
-                "route_name": self.config_entry.data.get(
-                    CONF_ROUTE_NAME, ""
-                )
-            },
         )
 
     def _async_done(self):

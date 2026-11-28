@@ -262,6 +262,10 @@ class FakeEntry(types.SimpleNamespace):
             data=dict(BASE_ENTRY_DATA),
             state=ConfigEntryState.SETUP_IN_PROGRESS,
             pref_disable_polling=False,
+            created_at=(
+                datetime.datetime.now(datetime.timezone.utc)
+                - datetime.timedelta(days=2)
+            ),
         )
         if data:
             self.data.update(data)
@@ -357,7 +361,7 @@ def create_fixable_issue(hass, entry, *, what="direction", candidate=None):
 
 
 async def add_real_entry(hass, data=None):
-    """Add a loaded MockConfigEntry for flow tests."""
+    """Add a loaded, two-day-old MockConfigEntry for flow tests."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={**BASE_ENTRY_DATA, **(data or {})},
@@ -365,12 +369,18 @@ async def add_real_entry(hass, data=None):
         title="Frankston line to Frankston from Flinders Street Station",
     )
     entry.add_to_hass(hass)
+    object.__setattr__(
+        entry,
+        "created_at",
+        datetime.datetime.now(datetime.timezone.utc)
+        - datetime.timedelta(days=2),
+    )
     make_entry_loaded(entry)
     return entry
 
 
 async def churn_on_real_entry(fake_api, hass):
-    """Healthy poll then a stale-direction churn on a real config entry."""
+    """A stale-direction churn (streak completed) on a real config entry."""
     fake_api.add(
         REQUEST_DEPARTURES_STALE,
         fixture("departures-frankston-flinders.json"),
@@ -381,7 +391,10 @@ async def churn_on_real_entry(fake_api, hass):
     )
     fake_api.add(DIRECTIONS_PATH, fixture("directions-frankston.json"))
     fake_api.add(STOPS_PATH, fixture("stops-frankston.json"))
-    entry = await add_real_entry(hass, {CONF_DIRECTION: STALE_DIRECTION})
+    entry = await add_real_entry(
+        hass,
+        {CONF_DIRECTION: STALE_DIRECTION, "diag_streak": 1},
+    )
     connector = make_connector(
         direction=STALE_DIRECTION,
         route_name="Frankston",
@@ -392,16 +405,13 @@ async def churn_on_real_entry(fake_api, hass):
     coordinator = sensor_module.PublicTransportVictoriaDataUpdateCoordinator(
         hass, connector, config_entry=entry
     )
-    await coordinator._async_update_data()  # healthy poll
-    assert issue_for(hass) is None
-
     fake_api.add(
         REQUEST_DEPARTURES_STALE, fixture("departures-200-empty.json")
     )
     fake_api.add(
         EMPTY_PROBE_PATH, {"departures": copy.deepcopy(RECORDED_DEPARTURES[:1])}
     )
-    await coordinator._async_update_data()  # churn event
+    await coordinator._async_update_data()  # churn event (streak 1 -> 2)
     return entry, coordinator
 
 
@@ -417,6 +427,43 @@ def wire_happy_path(api, *, run_status=200, departures_status=200):
     )
     api.add(RUN_PATH, fixture("runs.json"), status=run_status)
     return api
+
+
+def wire_stale_direction_path(api):
+    """Happy departures for direction 17, plus the audit/resolution responses."""
+    api.add(
+        REQUEST_DEPARTURES_STALE,
+        fixture("departures-frankston-flinders.json"),
+    )
+    api.add(
+        ROUTE_INFO_PATH,
+        {"route": {"route_id": 6, "route_gtfs_id": "2-FKN"}},
+    )
+    api.add(DIRECTIONS_PATH, fixture("directions-frankston.json"))
+    return api
+
+
+def make_stale_connector():
+    """Connector for a Frankston direction 17 (stale) scenario."""
+    connector = make_connector(
+        direction=STALE_DIRECTION,
+        route_name="Frankston",
+        direction_name="Frankston",
+        stop_name="Flinders Street Station",
+    )
+    connector.prepare()
+    return connector
+
+
+def make_stale_direction_coordinator(hass, *, streak=0):
+    """Coordinator/entry for a Frankston direction 17 (stale) scenario."""
+    entry = FakeEntry(
+        data={
+            CONF_DIRECTION: STALE_DIRECTION,
+            "diag_streak": streak,
+        }
+    )
+    return make_coordinator(hass, make_stale_connector(), entry=entry)
 
 
 # ---------------------------------------------------------------------------
@@ -997,72 +1044,70 @@ async def test_resolve_candidate_route_abstains_on_duplicate_gtfs(fake_api):
 
 
 # ---------------------------------------------------------------------------
-# 0.8.5 coordinator policy: quiet gate, persisted cooldown, repair lifecycle
+# 0.8.5 coordinator policy: entry-age gate, staleness streak, repair lifecycle
 # ---------------------------------------------------------------------------
 
 
+def expire_cooldown(entry):
+    """Make the persisted diagnosis window pass (test helper)."""
+    entry.data["diag_next_ok_at"] = (
+        datetime.datetime.now(datetime.timezone.utc)
+        - datetime.timedelta(hours=1)
+    ).isoformat()
+
+
 @pytest.mark.asyncio
-async def test_empty_poll_without_healthy_evidence_stays_quiet(fake_api, hass):
+async def test_young_entry_is_not_diagnosed(fake_api, hass):
+    """A brand-new entry is not nagged during its first day."""
     wire_happy_path(fake_api)
     fake_api.add(REQUEST_DEPARTURES, fixture("departures-200-empty.json"))
     connector = make_connector()
     connector.prepare()
     coordinator = make_coordinator(hass, connector)
+    object.__setattr__(
+        coordinator.test_entry,
+        "created_at",
+        datetime.datetime.now(datetime.timezone.utc)
+        - datetime.timedelta(hours=1),
+    )
 
     await coordinator._async_update_data()
 
-    assert coordinator.test_writes == []
     assert fake_api.requests == [DEPARTURES_PATH]
+    assert coordinator.test_writes == []
     assert issue_for(hass) is None
 
 
 @pytest.mark.asyncio
-async def test_healthy_poll_clears_issue_and_writes_nothing(fake_api, hass):
+async def test_missing_created_at_falls_back_to_first_seen_stamp(fake_api, hass):
     wire_happy_path(fake_api)
+    fake_api.add(REQUEST_DEPARTURES, fixture("departures-200-empty.json"))
     connector = make_connector()
     connector.prepare()
     coordinator = make_coordinator(hass, connector)
-    ir.async_create_issue(
-        hass,
-        DOMAIN,
-        ISSUE_ID,
-        is_fixable=False,
-        is_persistent=False,
-        severity=ir.IssueSeverity.WARNING,
-        translation_key="stale_ptv_ids",
-        translation_placeholders={},
-    )
-    assert issue_for(hass) is not None
+    entry = coordinator.test_entry
+    del entry.created_at
 
     await coordinator._async_update_data()
 
+    assert fake_api.requests == [DEPARTURES_PATH]
+    assert len(coordinator.test_writes) == 1
+    assert coordinator.test_writes[0]["first_seen_at"]
     assert issue_for(hass) is None
-    assert coordinator.test_writes == []
-    assert coordinator._last_healthy_at is not None
+
+    # The just-written stamp means the entry is still too young to diagnose.
+    await coordinator._async_update_data()
+    assert len(coordinator.test_writes) == 1
+    assert fake_api.requests == [DEPARTURES_PATH, DEPARTURES_PATH]
 
 
 @pytest.mark.asyncio
-async def test_churn_after_healthy_poll_raises_fixable_issue_and_persists_once(
+async def test_first_stale_classification_is_quiet_and_persists_streak(
     fake_api, hass
 ):
-    fake_api.add(
-        REQUEST_DEPARTURES_STALE,
-        fixture("departures-frankston-flinders.json"),
-    )
-    fake_api.add(
-        ROUTE_INFO_PATH,
-        {"route": {"route_id": 6, "route_gtfs_id": "2-FKN"}},
-    )
-    fake_api.add(DIRECTIONS_PATH, fixture("directions-frankston.json"))
-    connector = make_connector(
-        direction=STALE_DIRECTION,
-        route_name="Frankston",
-        direction_name="Frankston",
-        stop_name="Flinders Street Station",
-    )
-    connector.prepare()
-    entry = FakeEntry(data={CONF_DIRECTION: STALE_DIRECTION})
-    coordinator = make_coordinator(hass, connector, entry=entry)
+    """One stale window is not enough: cooldown + streak, no issue."""
+    wire_stale_direction_path(fake_api)
+    coordinator = make_stale_direction_coordinator(hass)
     await coordinator._async_update_data()  # healthy poll
     assert coordinator.test_writes == []
 
@@ -1072,12 +1117,53 @@ async def test_churn_after_healthy_poll_raises_fixable_issue_and_persists_once(
     fake_api.add(
         EMPTY_PROBE_PATH, {"departures": copy.deepcopy(RECORDED_DEPARTURES[:1])}
     )
-    await coordinator._async_update_data()  # churn event
+    await coordinator._async_update_data()
+
+    assert fake_api.requests[-2:] == [
+        REQUEST_DEPARTURES_STALE,
+        EMPTY_PROBE_PATH,
+    ]
+    # No resolution work on the first, unconfirmed classification.
+    assert fake_api.requests.count(ROUTE_INFO_PATH) == 0
+    assert issue_for(hass) is None
+    assert len(coordinator.test_writes) == 1
+    written = coordinator.test_writes[0]
+    assert written["diag_streak"] == 1
+    assert written["diag_next_ok_at"]
+    assert written[CONF_DIRECTION] == STALE_DIRECTION
+    assert written[CONF_ROUTE] == 6
+    assert written["route_name"] == "Frankston"
+
+
+@pytest.mark.asyncio
+async def test_streak_survives_rebuild_and_second_window_raises_issue(
+    fake_api, hass
+):
+    wire_stale_direction_path(fake_api)
+    coordinator = make_stale_direction_coordinator(hass)
+    await coordinator._async_update_data()  # healthy
+    fake_api.add(
+        REQUEST_DEPARTURES_STALE, fixture("departures-200-empty.json")
+    )
+    fake_api.add(
+        EMPTY_PROBE_PATH, {"departures": copy.deepcopy(RECORDED_DEPARTURES[:1])}
+    )
+    await coordinator._async_update_data()  # first stale window
+    assert issue_for(hass) is None
+    assert coordinator.test_entry.data["diag_streak"] == 1
+
+    # The 6 h window passes, then a reload builds a new coordinator instance.
+    expire_cooldown(coordinator.test_entry)
+    coordinator2 = make_coordinator(
+        hass, make_stale_connector(), entry=coordinator.test_entry
+    )
+
+    await coordinator2._async_update_data()  # second stale window
 
     issue = issue_for(hass)
     assert issue is not None
-    assert issue.issue_id == ISSUE_ID
     assert issue.is_fixable is True
+    assert issue.issue_id == ISSUE_ID
     assert issue.severity is ir.IssueSeverity.WARNING
     assert issue.translation_key == "stale_ptv_ids"
     assert issue.learn_more_url.endswith("/issues/50")
@@ -1100,55 +1186,111 @@ async def test_churn_after_healthy_poll_raises_fixable_issue_and_persists_once(
     assert placeholders["route_gtfs_id"] == "2-FKN"
     assert placeholders["detail"] == "matched the configured direction name"
 
-    # Exactly one config-entry write per churn event, carrying the three
-    # bounded stamps; configured ids and names are untouched.
-    assert len(coordinator.test_writes) == 1
-    written = coordinator.test_writes[0]
+    # One bounded write per diagnosis window: streak + cooldown (+ GTFS).
+    assert len(coordinator2.test_writes) == 1
+    written = coordinator2.test_writes[0]
+    assert written["diag_streak"] == 2
     assert written["route_gtfs_id"] == "2-FKN"
-    assert written["last_departure_at"]
     assert written["diag_next_ok_at"]
     assert written[CONF_DIRECTION] == STALE_DIRECTION
-    assert written[CONF_ROUTE] == 6
-    assert written[CONF_STOP] == 1071
     assert written["route_name"] == "Frankston"
     assert written["direction_name"] == "Frankston"
     assert written["stop_name"] == "Flinders Street Station"
     assert fake_api.requests.count(ROUTE_INFO_PATH) == 1
 
-    # A healthy poll clears the issue without writing to the entry again.
+
+@pytest.mark.asyncio
+async def test_restart_after_healthy_history_can_reach_issue(fake_api, hass):
+    """The deadlock scenario: long healthy history, stale ids, HA restart."""
+    wire_stale_direction_path(fake_api)
+    coordinator = make_stale_direction_coordinator(hass)
+    await coordinator._async_update_data()  # healthy poll (no writes)
+    assert coordinator.test_writes == []
+
+    # Restart: a new coordinator loses the in-memory healthy flag.
+    coordinator2 = make_coordinator(
+        hass, make_stale_connector(), entry=coordinator.test_entry
+    )
     fake_api.add(
-        REQUEST_DEPARTURES_STALE,
-        fixture("departures-frankston-flinders.json"),
+        REQUEST_DEPARTURES_STALE, fixture("departures-200-empty.json")
+    )
+    fake_api.add(
+        EMPTY_PROBE_PATH, {"departures": copy.deepcopy(RECORDED_DEPARTURES[:1])}
+    )
+    await coordinator2._async_update_data()  # first stale after restart
+    assert issue_for(hass) is None
+    assert coordinator2.test_entry.data["diag_streak"] == 1
+
+    expire_cooldown(coordinator2.test_entry)
+    await coordinator2._async_update_data()  # second stale after restart
+
+    assert issue_for(hass) is not None
+    assert coordinator2.test_entry.data["diag_streak"] == 2
+
+
+@pytest.mark.asyncio
+async def test_healthy_poll_clears_issue_and_resets_streak_lazily(fake_api, hass):
+    wire_stale_direction_path(fake_api)
+    entry = FakeEntry(
+        data={CONF_DIRECTION: STALE_DIRECTION, "diag_streak": 2}
+    )
+    coordinator = make_coordinator(hass, make_stale_connector(), entry=entry)
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        ISSUE_ID,
+        is_fixable=False,
+        is_persistent=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="stale_ptv_ids",
+        translation_placeholders={},
+    )
+    assert issue_for(hass) is not None
+
+    await coordinator._async_update_data()  # healthy poll
+
+    assert issue_for(hass) is None
+    assert coordinator.test_writes == []
+    # The reset is lazy: healthy polls never write, so the stored value stays.
+    assert entry.data["diag_streak"] == 2
+
+    # The next stale window starts from zero because a healthy poll intervened.
+    fake_api.add(
+        REQUEST_DEPARTURES_STALE, fixture("departures-200-empty.json")
+    )
+    fake_api.add(
+        EMPTY_PROBE_PATH, {"departures": copy.deepcopy(RECORDED_DEPARTURES[:1])}
     )
     await coordinator._async_update_data()
 
     assert issue_for(hass) is None
+    assert entry.data["diag_streak"] == 1
     assert len(coordinator.test_writes) == 1
 
 
 @pytest.mark.asyncio
-async def test_abstained_resolution_raises_manual_issue(fake_api, hass):
-    """Ambiguous names cannot be auto-fixed: manual instructions instead."""
-    fake_api.add(
-        REQUEST_DEPARTURES_STALE,
-        fixture("departures-frankston-flinders.json"),
-    )
-    fake_api.add(
-        ROUTE_INFO_PATH,
-        {"route": {"route_id": 6, "route_gtfs_id": "2-FKN"}},
-    )
-    fake_api.add(DIRECTIONS_PATH, fixture("directions-frankston.json"))
-    connector = make_connector(
-        direction=STALE_DIRECTION,
-        route_name="Frankston",
-        direction_name="Frankston",
-        stop_name="Flinders Street Station",
-    )
+async def test_quiet_empty_poll_resets_streak_and_raises_no_issue(fake_api, hass):
+    wire_happy_path(fake_api)
+    entry = FakeEntry(data={"diag_streak": 1})
+    connector = make_connector()
     connector.prepare()
-    entry = FakeEntry(data={CONF_DIRECTION: STALE_DIRECTION})
     coordinator = make_coordinator(hass, connector, entry=entry)
-    await coordinator._async_update_data()  # healthy
+    fake_api.add(REQUEST_DEPARTURES, fixture("departures-200-empty.json"))
+    fake_api.add(EMPTY_PROBE_PATH, {"departures": []})
 
+    await coordinator._async_update_data()  # probe A empty, route exists
+
+    assert issue_for(hass) is None
+    assert entry.data["diag_streak"] == 0
+    assert len(coordinator.test_writes) == 1
+    assert "diag_next_ok_at" in entry.data
+
+
+@pytest.mark.asyncio
+async def test_abstained_resolution_raises_manual_issue(fake_api, hass):
+    """A confirmed stale classification that cannot be verified stays manual."""
+    wire_stale_direction_path(fake_api)
+    coordinator = make_stale_direction_coordinator(hass, streak=1)
     fake_api.add(
         REQUEST_DEPARTURES_STALE, fixture("departures-200-empty.json")
     )
@@ -1165,6 +1307,7 @@ async def test_abstained_resolution_raises_manual_issue(fake_api, hass):
             ]
         },
     )
+
     await coordinator._async_update_data()
 
     issue = issue_for(hass)
@@ -1175,42 +1318,20 @@ async def test_abstained_resolution_raises_manual_issue(fake_api, hass):
     assert placeholders["what"] == "direction"
     assert placeholders["configured"] == "route 6, direction 17, stop 1071"
     assert "Delete this entry" in placeholders["remedy"]
-    assert "several entries matched" in placeholders["candidate"] or (
-        "No unambiguous replacement" in placeholders["candidate"]
-    )
     assert len(coordinator.test_writes) == 1
+    assert coordinator.test_writes[0]["diag_streak"] == 2
     assert coordinator.test_writes[0][CONF_DIRECTION] == STALE_DIRECTION
 
 
 @pytest.mark.asyncio
 async def test_real_config_entry_write_path_persists_bounded_stamps(fake_api, hass):
     """The production write path (real ConfigEntries manager) works end to end."""
-    wire_happy_path(fake_api)
-    fake_api.add(
-        ROUTE_INFO_PATH,
-        {"route": {"route_id": 6, "route_gtfs_id": "2-FKN"}},
-    )
-    entry = MockConfigEntry(
-        domain=DOMAIN, data=dict(BASE_ENTRY_DATA), entry_id=ENTRY_ID
-    )
-    entry.add_to_hass(hass)
-    connector = make_connector(direction_name="Frankston")
-    connector.prepare()
-    coordinator = sensor_module.PublicTransportVictoriaDataUpdateCoordinator(
-        hass, connector, config_entry=entry
-    )
-    await coordinator._async_update_data()  # healthy
-    assert "last_departure_at" not in entry.data
+    entry, _coordinator = await churn_on_real_entry(fake_api, hass)
 
-    fake_api.add(REQUEST_DEPARTURES, fixture("departures-200-empty.json"))
-    fake_api.add(
-        EMPTY_PROBE_PATH, {"departures": copy.deepcopy(RECORDED_DEPARTURES[:1])}
-    )
-    await coordinator._async_update_data()  # churn event
-
+    assert entry.data["diag_streak"] == 2
     assert entry.data["route_gtfs_id"] == "2-FKN"
-    assert entry.data["last_departure_at"]
     assert entry.data["diag_next_ok_at"]
+    assert "last_departure_at" not in entry.data
     assert entry.data[CONF_ROUTE_NAME] == "Frankston"
     assert entry.data[CONF_DIRECTION_NAME] == "Frankston"
     assert entry.data[CONF_STOP_NAME] == "Flinders Street Station"
@@ -1219,64 +1340,42 @@ async def test_real_config_entry_write_path_persists_bounded_stamps(fake_api, ha
 
 @pytest.mark.asyncio
 async def test_cooldown_is_persisted_and_respected_after_reload(fake_api, hass):
-    wire_happy_path(fake_api)
-    fake_api.add(
-        ROUTE_INFO_PATH,
-        {"route": {"route_id": 6, "route_gtfs_id": "2-FKN"}},
-    )
-    connector = make_connector(direction_name="Frankston")
-    connector.prepare()
-    coordinator = make_coordinator(hass, connector)
+    wire_stale_direction_path(fake_api)
+    coordinator = make_stale_direction_coordinator(hass)
     await coordinator._async_update_data()  # healthy
 
-    fake_api.add(REQUEST_DEPARTURES, fixture("departures-200-empty.json"))
+    fake_api.add(
+        REQUEST_DEPARTURES_STALE, fixture("departures-200-empty.json")
+    )
     fake_api.add(
         EMPTY_PROBE_PATH, {"departures": copy.deepcopy(RECORDED_DEPARTURES[:1])}
     )
-    await coordinator._async_update_data()  # churn: one write, one issue
+    await coordinator._async_update_data()  # first stale window
     assert len(coordinator.test_writes) == 1
-    assert issue_for(hass) is not None
+    assert coordinator.test_entry.data["diag_streak"] == 1
+    assert issue_for(hass) is None
 
-    # Reload: a new connector and coordinator over the same entry data.
-    connector2 = make_connector(direction_name="Frankston")
-    connector2.prepare()
+    # Reload inside the window: a new instance must not probe.
     coordinator2 = make_coordinator(
-        hass, connector2, entry=coordinator.test_entry
+        hass, make_stale_connector(), entry=coordinator.test_entry
     )
     before = len(fake_api.requests)
 
     await coordinator2._async_update_data()
 
-    assert fake_api.requests[before:] == [DEPARTURES_PATH]
+    assert fake_api.requests[before:] == [REQUEST_DEPARTURES_STALE]
     assert coordinator2.test_writes == []
-    assert issue_for(hass) is not None
-
-
-@pytest.mark.asyncio
-async def test_quiet_empty_poll_raises_no_issue(fake_api, hass):
-    wire_happy_path(fake_api)
-    connector = make_connector()
-    connector.prepare()
-    coordinator = make_coordinator(hass, connector)
-    await coordinator._async_update_data()  # healthy
-
-    fake_api.add(REQUEST_DEPARTURES, fixture("departures-200-empty.json"))
-    fake_api.add(EMPTY_PROBE_PATH, {"departures": []})
-    await coordinator._async_update_data()  # probe A empty, route exists
-
+    assert coordinator2.test_entry.data["diag_streak"] == 1
     assert issue_for(hass) is None
-    # The cooldown stamp is still bounded to one write per diagnosis window.
-    assert len(coordinator.test_writes) == 1
-    assert "diag_next_ok_at" in coordinator.test_entry.data
 
 
 @pytest.mark.asyncio
 async def test_route_mismatch_issue_lists_observed_route_ids(fake_api, hass):
     wire_happy_path(fake_api)
+    entry = FakeEntry(data={"diag_streak": 1})
     connector = make_connector()
     connector.prepare()
-    coordinator = make_coordinator(hass, connector)
-    await coordinator._async_update_data()  # healthy
+    coordinator = make_coordinator(hass, connector, entry=entry)
 
     rows = copy.deepcopy(RECORDED_DEPARTURES[:2])
     rows[0]["route_id"] = 11
@@ -1286,10 +1385,12 @@ async def test_route_mismatch_issue_lists_observed_route_ids(fake_api, hass):
 
     issue = issue_for(hass)
     assert issue is not None
+    assert issue.is_fixable is False
     placeholders = issue.translation_placeholders
     assert placeholders["what"] == "route mismatch"
     assert "route id(s) 11" in placeholders["detail"]
     assert len(coordinator.test_writes) == 1
+    assert coordinator.test_writes[0]["diag_streak"] == 2
 
 
 # ---------------------------------------------------------------------------
@@ -1306,7 +1407,6 @@ async def test_repair_flow_applies_verified_ids(fake_api, hass):
 
     names = (CONF_ROUTE_NAME, CONF_DIRECTION_NAME, CONF_STOP_NAME)
     names_before = {key: entry.data[key] for key in names}
-    data_before = dict(entry.data)
 
     writes = []
     real_update = hass.config_entries.async_update_entry
@@ -1339,7 +1439,7 @@ async def test_repair_flow_applies_verified_ids(fake_api, hass):
     assert entry.data[CONF_STOP] == "1071"
     assert entry.data["route_gtfs_id"] == "2-FKN"
     assert entry.data["diag_next_ok_at"]
-    assert entry.data["last_departure_at"] == data_before["last_departure_at"]
+    assert entry.data["diag_streak"] == 2
     assert {key: entry.data[key] for key in names} == names_before
     assert writes == [dict(entry.data)]
     assert reloads == [ENTRY_ID]
@@ -1562,6 +1662,7 @@ async def test_options_flow_healthy_audit_stamps_cooldown_only(fake_api, hass):
     # One bounded write: the cooldown stamp (GTFS was already stored).
     assert len(writes) == 1
     assert writes[0]["diag_next_ok_at"]
+    assert writes[0]["diag_streak"] == 0
     assert writes[0]["route_gtfs_id"] == "2-FKN"
     assert {key: entry.data[key] for key in names} == names_before
     assert reloads == []
@@ -1580,7 +1681,12 @@ async def test_options_flow_healthy_audit_stamps_cooldown_only(fake_api, hass):
 async def test_options_flow_changed_direction_applies_verified_ids(fake_api, hass):
     wire_healthy_audit(fake_api)
     entry = await add_real_entry(
-        hass, {CONF_DIRECTION: STALE_DIRECTION, "route_gtfs_id": "2-FKN"}
+        hass,
+        {
+            CONF_DIRECTION: STALE_DIRECTION,
+            "route_gtfs_id": "2-FKN",
+            "diag_streak": 1,
+        },
     )
     names = (CONF_ROUTE_NAME, CONF_DIRECTION_NAME, CONF_STOP_NAME)
     names_before = {key: entry.data[key] for key in names}
@@ -1592,8 +1698,10 @@ async def test_options_flow_changed_direction_applies_verified_ids(fake_api, has
     assert result["step_id"] == "confirm_apply"
     assert result["description_placeholders"]["old_direction_id"] == "17"
     assert result["description_placeholders"]["new_direction_id"] == "5"
-    # The audit stamped the cooldown and raised the fixable issue.
+    # The audit stamped the cooldown, completed the pending streak, and raised
+    # the fixable issue.  streak 1 -> 2 is what "completes" it.
     assert len(writes) == 1
+    assert writes[0]["diag_streak"] == 2
     issue = issue_for(hass)
     assert issue is not None and issue.is_fixable is True
 
@@ -1641,6 +1749,7 @@ async def test_options_flow_abstain_reports_manual_and_nonfixable_issue(
     assert issue.translation_key == MANUAL_TRANSLATION_KEY
     assert len(writes) == 1
     assert writes[0]["diag_next_ok_at"]
+    assert writes[0]["diag_streak"] == 0
     assert reloads == []
 
     result = await hass.config_entries.options.async_configure(
@@ -1650,28 +1759,43 @@ async def test_options_flow_abstain_reports_manual_and_nonfixable_issue(
 
 
 @pytest.mark.asyncio
-async def test_options_flow_cooldown_reports_without_probing(fake_api, hass):
+async def test_options_flow_bypasses_cooldown_and_completes_streak(fake_api, hass):
+    """Manual checks ignore the cooldown and count toward the stale streak."""
+    wire_healthy_audit(fake_api)
     until = (
         datetime.datetime.now(datetime.timezone.utc)
         + datetime.timedelta(hours=1)
     ).isoformat()
-    entry = await add_real_entry(hass, {"diag_next_ok_at": until})
+    entry = await add_real_entry(
+        hass,
+        {
+            CONF_DIRECTION: STALE_DIRECTION,
+            "route_gtfs_id": "2-FKN",
+            "diag_next_ok_at": until,
+            "diag_streak": 1,
+        },
+    )
     writes, reloads = instrument_entry(hass)
     before = len(fake_api.requests)
 
     result = await start_options_flow(hass)
 
     assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "cooldown"
-    assert len(fake_api.requests) == before
-    assert writes == []
+    assert result["step_id"] == "confirm_apply"
+    # The API was probed despite the automatic cooldown being active.
+    assert len(fake_api.requests) > before
+    issue = issue_for(hass)
+    assert issue is not None and issue.is_fixable is True
+    assert len(writes) == 1
+    assert writes[0]["diag_streak"] == 2
+    assert writes[0]["diag_next_ok_at"] != until
     assert reloads == []
-    assert issue_for(hass) is None
 
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {}
     )
-    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "applied"
 
 
 @pytest.mark.asyncio
@@ -2139,7 +2263,6 @@ def test_stale_ids_repair_translations_are_mirrored():
         "healthy",
         "applied",
         "manual",
-        "cooldown",
     }
     assert options["init"]["menu_options"]["check_ids"]
     confirm = options["confirm_apply"]["title"] + options["confirm_apply"]["description"]

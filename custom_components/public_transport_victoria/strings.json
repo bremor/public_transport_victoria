@@ -74,7 +74,7 @@
     "step": {
       "init": {
         "title": "PTV timetable IDs",
-        "description": "Check whether this entry's stored route, direction and stop IDs still match PTV's live timetable data.",
+        "description": "Check whether this entry's stored route, direction and stop IDs still match PTV's live timetable data. A manual check bypasses the automatic cooldown and counts toward the stale-ID confirmation streak.",
         "menu_options": {
           "check_ids": "Check PTV timetable IDs now"
         }
@@ -94,10 +94,6 @@
       "manual": {
         "title": "Manual check needed for {route_name}",
         "description": "{detail}\n\nConfigured IDs: {configured}.\n\n{candidate}\n\n{remedy} If you choose the same route, direction and stop, your existing entities are restored. Select **Submit** to close."
-      },
-      "cooldown": {
-        "title": "ID check ran recently",
-        "description": "A timetable ID check ran for {route_name} in the last 6 hours. Wait for the window to pass, or rely on automatic detection. Select **Submit** to close."
       }
     },
     "abort": {

@@ -17,6 +17,12 @@ Two tiers are used:
 Entity names (which back entity unique ids) are never rewritten by either
 path.  This module is also the integration's ``repairs`` platform: Home
 Assistant discovers :func:`async_create_fix_flow` for the fixable issues.
+
+Policy notes: automatic diagnosis is gated by entry age (24 h) and a persisted
+6 h cooldown, and a repair issue is only raised after two consecutive stale
+classifications (``diag_streak``) so a genuinely quiet direction does not nag.
+The options-flow check is user-initiated: it bypasses the cooldown and counts
+toward (and can complete) the same streak.
 """
 
 import logging
@@ -32,6 +38,9 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    ATTR_DIAG_NEXT_OK_AT,
+    ATTR_DIAG_STREAK,
+    ATTR_ROUTE_GTFS_ID,
     CONF_DIRECTION,
     CONF_DIRECTION_NAME,
     CONF_ROUTE,
@@ -41,6 +50,7 @@ from .const import (
     CONF_STOP,
     CONF_STOP_NAME,
     DOMAIN,
+    STALE_STREAK_THRESHOLD,
 )
 from .PublicTransportVictoria.public_transport_victoria import (
     EMPTY_DIAG_COOLDOWN,
@@ -56,10 +66,6 @@ LEARN_MORE_URL = (
     "https://github.com/bremor/public_transport_victoria/issues/50"
 )
 ISSUE_PREFIX = "stale_ptv_ids_"
-
-ATTR_LAST_DEPARTURE_AT = "last_departure_at"
-ATTR_DIAG_NEXT_OK_AT = "diag_next_ok_at"
-ATTR_ROUTE_GTFS_ID = "route_gtfs_id"
 
 _WHAT_LABELS = {
     "direction": "direction",
@@ -341,37 +347,16 @@ def _entry_ready(entry):
     )
 
 
-def _cooldown_until(entry):
-    """Return the persisted diagnosis cooldown instant, or None."""
-    value = entry.data.get(ATTR_DIAG_NEXT_OK_AT)
-    if not value:
-        return None
-    parsed = dt_util.parse_datetime(_text(value))
-    if parsed is None or parsed.tzinfo is None:
-        return None
-    return parsed
-
-
-def in_diag_cooldown(entry):
-    """True while no audit or automatic diagnosis may run for this entry."""
-    until = _cooldown_until(entry)
-    return until is not None and dt_util.utcnow() < until
-
-
 def _next_cooldown_stamp():
     return (dt_util.utcnow() + EMPTY_DIAG_COOLDOWN).isoformat()
 
 
-def _stamp_audit(hass, entry, connector, audit):
-    """Persist the cooldown (and any backfilled GTFS id) in one bounded write."""
-    updates = {ATTR_DIAG_NEXT_OK_AT: _next_cooldown_stamp()}
-    mapping = (audit or {}).get("mapping") or {}
-    gtfs_id = mapping.get("gtfs") or (
-        connector.gtfs_id if connector is not None else None
-    )
-    if gtfs_id and _text(entry.data.get(ATTR_ROUTE_GTFS_ID)) != _text(gtfs_id):
-        updates[ATTR_ROUTE_GTFS_ID] = _text(gtfs_id)
-    async_persist_entry_data(hass, entry, updates)
+def _persisted_streak(entry):
+    """Return the persisted consecutive-stale diagnosis counter."""
+    try:
+        return max(0, int(entry.data.get(ATTR_DIAG_STREAK) or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 async def _async_audit_entry(hass, entry):
@@ -399,25 +384,47 @@ async def _async_audit_entry(hass, entry):
 
 
 async def async_run_identity_audit(hass, entry) -> dict:
-    """User-initiated id audit: probe, stamp the cooldown, sync the issue.
+    """User-initiated id audit: probe, stamp, track the streak, sync issues.
 
-    The cooldown is stamped on every run (manual runs count) so the options
-    flow and automatic detection cannot hammer the API.  A changed/stale audit
-    creates or refreshes the fixable issue; an abstain creates the manual one.
-    A healthy audit creates nothing and does **not** delete an existing issue
-    (only a healthy poll clears it).
+    Manual runs bypass the automatic cooldown (the user asked explicitly) and
+    count toward the persisted stale streak.  A run that completes a pending
+    streak raises or refreshes the fixable issue; a single stale run is still
+    offered as a one-click fix in the options flow without raising the issue
+    yet.  An abstain raises the manual issue immediately.  A healthy audit
+    creates nothing and does **not** delete an existing issue (only a healthy
+    poll clears it).  All state is written in one bounded entry.data write.
     """
     connector, audit = await _async_audit_entry(hass, entry)
     status = audit.get("status")
-    if status in ("changed", "stale", "abstain"):
-        resolution = _audit_resolution(audit)
+    actionable = status in ("changed", "stale")
+    streak = _persisted_streak(entry) + 1 if actionable else 0
+
+    updates = {
+        ATTR_DIAG_NEXT_OK_AT: _next_cooldown_stamp(),
+        ATTR_DIAG_STREAK: streak,
+    }
+    mapping = audit.get("mapping") or {}
+    gtfs_id = mapping.get("gtfs") or (
+        connector.gtfs_id if connector is not None else None
+    )
+    if gtfs_id and _text(entry.data.get(ATTR_ROUTE_GTFS_ID)) != _text(gtfs_id):
+        updates[ATTR_ROUTE_GTFS_ID] = _text(gtfs_id)
+
+    if actionable and streak >= STALE_STREAK_THRESHOLD:
         async_create_stale_ids_issue(
             hass,
             entry,
             what=audit.get("what", "unknown"),
-            resolution=resolution,
+            resolution=_audit_resolution(audit),
         )
-    _stamp_audit(hass, entry, connector, audit)
+    elif status == "abstain":
+        async_create_stale_ids_issue(
+            hass,
+            entry,
+            what=audit.get("what", "unknown"),
+            resolution=_audit_resolution(audit),
+        )
+    async_persist_entry_data(hass, entry, updates)
     return audit
 
 
