@@ -4,6 +4,7 @@ import asyncio
 import datetime
 import hmac
 import logging
+import time
 from hashlib import sha1
 
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -19,6 +20,19 @@ MAX_RESULTS = 5
 ROUTE_TYPES_PATH = "/v3/route_types"
 ROUTES_PATH = "/v3/routes?route_types={}"
 STOPS_PATH = "/v3/stops/route/{}/route_type/{}"
+
+# Live probing showed the departures endpoint answers HTTP 200 with an empty
+# list for stale direction, route and stop ids alike (issue #50), so an empty
+# poll alone cannot tell "no service right now" from "stale configured ids".
+# When a poll keeps no rows, one un-filtered departures probe (and, only if
+# that is empty too, one tiny directions call) separates the two cases.
+EMPTY_DEPARTURES_PATH = (
+    "/v3/departures/route_type/{}/stop/{}/route/{}?max_results=1"
+)
+
+# Persistent empties (for example an overnight quiet period) must not repeat
+# the diagnosis on every poll; a non-empty poll re-arms it.
+EMPTY_DIAG_COOLDOWN = datetime.timedelta(hours=6)
 
 # One explicit timeout for every PTV request.  The API is a plain JSON
 # service, so a whole request that takes longer than 30 seconds is stalled.
@@ -120,6 +134,9 @@ class Connector:
         self.stop_name = stop_name
         self._session = session
         self._resolved_session = None
+        # When the last empty-result diagnosis was logged (monotonic seconds),
+        # or None when a non-empty poll re-armed the diagnosis.
+        self._last_empty_diag = None
         # Always defined so a failing first fetch leaves a usable value.
         self.departures = []
 
@@ -240,6 +257,111 @@ class Connector:
         _LOGGER.debug("Fetched stops: %d", len(stops))
         return stops
 
+    def _log_empty_diag(self, level, message, *args):
+        """Emit one empty-result diagnosis and start the cooldown."""
+        _LOGGER.log(level, message, *args)
+        self._last_empty_diag = time.monotonic()
+
+    async def _async_diagnose_empty(self, had_rows):
+        """Explain an empty departure list with at most two cheap probes.
+
+        Probe A drops the direction filter: rows coming back mean the
+        configured direction id is the likely culprit.  Probe B asks the tiny
+        directions endpoint whether the configured route still exists at all.
+        Both probes are only issued on an empty poll, at most once per
+        :data:`EMPTY_DIAG_COOLDOWN`, and their own failures are downgraded to
+        debug logs so a diagnosis never fails the update.  Logs carry ids and
+        counts only, never payloads or signed URLs.
+        """
+        now = time.monotonic()
+        if (
+            self._last_empty_diag is not None
+            and now - self._last_empty_diag
+            < EMPTY_DIAG_COOLDOWN.total_seconds()
+        ):
+            # Already diagnosed during this empty spell; stay quiet.
+            return
+
+        probe_path = EMPTY_DEPARTURES_PATH.format(
+            self.route_type, self.stop, self.route
+        )
+        try:
+            probe = await self._async_get_json(
+                build_URL(self.id, self.api_key, probe_path),
+                "departures without the direction filter",
+            )
+            probe_rows = _require_list(
+                probe, "departures", "departures without the direction filter"
+            )
+        except (PTVAuthError, PTVConnectionError, PTVServiceError) as err:
+            _LOGGER.debug("PTV: empty-result departure probe failed: %s", err)
+            return
+
+        if probe_rows:
+            configured_route = None if self.route is None else str(self.route)
+            if (
+                had_rows
+                and configured_route is not None
+                and not any(
+                    str(row.get("route_id")) == configured_route
+                    for row in probe_rows
+                )
+            ):
+                self._log_empty_diag(
+                    logging.WARNING,
+                    "PTV: departures exist for this stop but none match the "
+                    "configured route id (through-running or stale route id) "
+                    "- re-add the config entry naming route %s",
+                    self.route,
+                )
+                return
+            self._log_empty_diag(
+                logging.WARNING,
+                "PTV: departures are empty for route %s direction %s stop "
+                "%s, but the route has departures without the direction "
+                "filter - the direction id looks stale; re-add the config "
+                "entry",
+                self.route,
+                self.direction,
+                self.stop,
+            )
+            return
+
+        try:
+            response = await self._async_get_json(
+                build_URL(
+                    self.id, self.api_key, DIRECTIONS_PATH.format(self.route)
+                ),
+                "directions route check",
+            )
+            route_directions = _require_list(
+                response, "directions", "directions route check"
+            )
+        except (PTVAuthError, PTVConnectionError, PTVServiceError) as err:
+            _LOGGER.debug("PTV: empty-result route check failed: %s", err)
+            return
+
+        if not route_directions:
+            self._log_empty_diag(
+                logging.WARNING,
+                "PTV: departures are empty for route %s direction %s stop "
+                "%s and the route has no directions - the route id looks "
+                "stale; re-add the config entry",
+                self.route,
+                self.direction,
+                self.stop,
+            )
+            return
+
+        self._log_empty_diag(
+            logging.INFO,
+            "PTV: no departures currently scheduled for route %s stop %s "
+            "direction %s (probe A returned nothing) - may be a quiet period",
+            self.route,
+            self.stop,
+            self.direction,
+        )
+
     async def async_update(self):
         """Update the departure information.
 
@@ -281,6 +403,13 @@ class Connector:
                 "route",
                 filtered,
             )
+
+        if not kept_rows:
+            # An empty poll is ambiguous (no service vs stale ids).  Diagnose
+            # it with bounded probes; a non-empty poll re-arms the diagnosis.
+            await self._async_diagnose_empty(bool(rows))
+        else:
+            self._last_empty_diag = None
         rows = kept_rows
 
         # Normalise first: every kept row must have both timestamp attributes,

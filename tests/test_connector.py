@@ -45,6 +45,9 @@ DEPARTURES_PATH = (
     "?direction_id=5&max_results=5"
 )
 REQUEST_DEPARTURES = DEPARTURES_PATH
+# Bounded empty-result diagnosis probes (see EMPTY_DIAG_COOLDOWN).
+EMPTY_PROBE_PATH = "/v3/departures/route_type/0/stop/1071/route/6?max_results=1"
+ROUTE_CHECK_PATH = "/v3/directions/route/6"
 
 
 # ---------------------------------------------------------------------------
@@ -365,12 +368,19 @@ async def test_async_update_happy_path_mixed_estimates(fake_api):
 async def test_async_update_200_empty_departures_is_empty_list(fake_api):
     wire_happy_path(fake_api)
     fake_api.add(REQUEST_DEPARTURES, fixture("departures-200-empty.json"))
+    fake_api.add(EMPTY_PROBE_PATH, {"departures": []})
     connector = make_connector()
 
     await prepare_and_update(connector)
 
     assert connector.departures == []
-    assert fake_api.requests == [DEPARTURES_PATH]  # no run lookups
+    # No run lookups; the empty poll only adds the bounded diagnosis probes
+    # (probe A is empty, so the route-existence probe B follows).
+    assert fake_api.requests == [
+        DEPARTURES_PATH,
+        EMPTY_PROBE_PATH,
+        ROUTE_CHECK_PATH,
+    ]
 
 
 @pytest.mark.asyncio
@@ -521,6 +531,7 @@ async def test_async_update_all_rows_filtered_is_empty_success(fake_api, caplog,
     rows[0]["route_id"] = 11
     del rows[1]["route_id"]
     fake_api.add(REQUEST_DEPARTURES, {"departures": rows})
+    fake_api.add(EMPTY_PROBE_PATH, {"departures": []})
     connector = make_connector()
     connector.prepare()
     coordinator = make_coordinator(hass, connector)
@@ -531,12 +542,199 @@ async def test_async_update_all_rows_filtered_is_empty_success(fake_api, caplog,
     assert coordinator.last_update_success is True
     assert coordinator.data == []
     assert connector.departures == []
-    # Empty is a valid result, not a failure: no run lookups were attempted.
-    assert fake_api.requests == [DEPARTURES_PATH]
+    # Empty is a valid result, not a failure: no run lookups were attempted,
+    # only the bounded empty-result diagnosis probes.
+    assert fake_api.requests == [
+        DEPARTURES_PATH,
+        EMPTY_PROBE_PATH,
+        ROUTE_CHECK_PATH,
+    ]
     assert (
         "filtered 2 departure row(s) not matching the configured route"
         in caplog.text
     )
+
+
+# ---------------------------------------------------------------------------
+# #50: an empty poll is diagnosed (stale ids vs genuinely no service)
+# ---------------------------------------------------------------------------
+
+
+def warning_messages(caplog, needle):
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno == logging.WARNING and needle in record.getMessage()
+    ]
+
+
+@pytest.mark.asyncio
+async def test_empty_departures_probe_without_direction_warns_stale_direction(
+    fake_api, caplog
+):
+    """Empty + rows without the direction filter == stale direction id."""
+    wire_happy_path(fake_api)
+    fake_api.add(REQUEST_DEPARTURES, fixture("departures-200-empty.json"))
+    fake_api.add(
+        EMPTY_PROBE_PATH, {"departures": copy.deepcopy(RECORDED_DEPARTURES[:1])}
+    )
+    connector = make_connector()
+
+    caplog.set_level(logging.DEBUG)
+    await prepare_and_update(connector)
+
+    assert connector.departures == []
+    # Exactly one extra GET, shaped like the departures call minus direction.
+    assert fake_api.requests == [DEPARTURES_PATH, EMPTY_PROBE_PATH]
+    assert "direction_id" not in EMPTY_PROBE_PATH
+    assert "max_results=1" in EMPTY_PROBE_PATH
+    # Probe rows are never processed, so no run lookups are attempted.
+    assert not any(path.startswith("/v3/runs/") for path in fake_api.requests)
+    assert warning_messages(caplog, "direction id looks stale") == [
+        "PTV: departures are empty for route 6 direction 5 stop 1071, but the "
+        "route has departures without the direction filter - the direction "
+        "id looks stale; re-add the config entry"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_empty_departures_and_no_directions_warns_stale_route(
+    fake_api, caplog
+):
+    """Probe A empty + the route has no directions == stale route id."""
+    wire_happy_path(fake_api)
+    fake_api.add(REQUEST_DEPARTURES, fixture("departures-200-empty.json"))
+    fake_api.add(EMPTY_PROBE_PATH, {"departures": []})
+    fake_api.add(ROUTE_CHECK_PATH, {"directions": []})
+    connector = make_connector()
+
+    caplog.set_level(logging.DEBUG)
+    await prepare_and_update(connector)
+
+    assert connector.departures == []
+    assert fake_api.requests == [
+        DEPARTURES_PATH,
+        EMPTY_PROBE_PATH,
+        ROUTE_CHECK_PATH,
+    ]
+    assert warning_messages(caplog, "route id looks stale") == [
+        "PTV: departures are empty for route 6 direction 5 stop 1071 and the "
+        "route has no directions - the route id looks stale; re-add the "
+        "config entry"
+    ]
+    assert not warning_messages(caplog, "direction id looks stale")
+
+
+@pytest.mark.asyncio
+async def test_empty_departures_with_existing_route_logs_info_not_warning(
+    fake_api, caplog
+):
+    """Probe A empty + the route still exists == a quiet period, not a fault."""
+    wire_happy_path(fake_api)  # the directions fixture is non-empty
+    fake_api.add(REQUEST_DEPARTURES, fixture("departures-200-empty.json"))
+    fake_api.add(EMPTY_PROBE_PATH, {"departures": []})
+    connector = make_connector()
+
+    caplog.set_level(logging.DEBUG)
+    await prepare_and_update(connector)
+
+    assert connector.departures == []
+    assert fake_api.requests == [
+        DEPARTURES_PATH,
+        EMPTY_PROBE_PATH,
+        ROUTE_CHECK_PATH,
+    ]
+    infos = [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno == logging.INFO
+    ]
+    assert (
+        "PTV: no departures currently scheduled for route 6 stop 1071 "
+        "direction 5 (probe A returned nothing) - may be a quiet period"
+    ) in infos
+    assert not warning_messages(caplog, "PTV:")
+
+
+@pytest.mark.asyncio
+async def test_empty_diagnosis_cools_down_until_a_non_empty_poll(fake_api, caplog):
+    """Persistent empties stay quiet; any non-empty poll re-arms the warning."""
+    wire_happy_path(fake_api)
+    empty = fixture("departures-200-empty.json")
+    fake_api.add(REQUEST_DEPARTURES, empty)
+    fake_api.add(
+        EMPTY_PROBE_PATH, {"departures": copy.deepcopy(RECORDED_DEPARTURES[:1])}
+    )
+    connector = make_connector()
+
+    caplog.set_level(logging.DEBUG)
+    await prepare_and_update(connector)
+    assert fake_api.requests == [DEPARTURES_PATH, EMPTY_PROBE_PATH]
+    assert len(warning_messages(caplog, "direction id looks stale")) == 1
+
+    # Second empty poll inside the cooldown: no probes, no second warning.
+    await connector.async_update()
+    assert fake_api.requests.count(DEPARTURES_PATH) == 2
+    assert fake_api.requests.count(EMPTY_PROBE_PATH) == 1
+    assert len(warning_messages(caplog, "direction id looks stale")) == 1
+
+    # Any non-empty poll re-arms the diagnosis...
+    fake_api.add(
+        REQUEST_DEPARTURES, fixture("departures-frankston-flinders.json")
+    )
+    await connector.async_update()
+    assert len(connector.departures) == len(RECORDED_DEPARTURES)
+
+    # ...so the next dry spell probes and warns again.
+    fake_api.add(REQUEST_DEPARTURES, empty)
+    await connector.async_update()
+    assert connector.departures == []
+    assert fake_api.requests.count(EMPTY_PROBE_PATH) == 2
+    assert len(warning_messages(caplog, "direction id looks stale")) == 2
+
+
+@pytest.mark.asyncio
+async def test_all_rows_filtered_out_probes_and_warns_about_route_id(
+    fake_api, caplog
+):
+    """Rows exist for the stop but none for the configured route."""
+    wire_happy_path(fake_api)
+    rows = copy.deepcopy(RECORDED_DEPARTURES[:2])
+    rows[0]["route_id"] = 11
+    del rows[1]["route_id"]
+    fake_api.add(REQUEST_DEPARTURES, {"departures": rows})
+    fake_api.add(EMPTY_PROBE_PATH, {"departures": copy.deepcopy(rows)})
+    connector = make_connector()
+
+    caplog.set_level(logging.DEBUG)
+    await prepare_and_update(connector)
+
+    assert connector.departures == []
+    assert fake_api.requests == [DEPARTURES_PATH, EMPTY_PROBE_PATH]
+    assert warning_messages(caplog, "none match the configured route id") == [
+        "PTV: departures exist for this stop but none match the configured "
+        "route id (through-running or stale route id) - re-add the config "
+        "entry naming route 6"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_empty_probe_failure_never_fails_the_update(fake_api, caplog):
+    """A probe's own failure is a debug log; the empty result still succeeds."""
+    wire_happy_path(fake_api)
+    fake_api.add(REQUEST_DEPARTURES, fixture("departures-200-empty.json"))
+    fake_api.raise_on(
+        EMPTY_PROBE_PATH, connector_module.PTVConnectionError("probe boom")
+    )
+    connector = make_connector()
+
+    caplog.set_level(logging.DEBUG)
+    await prepare_and_update(connector)
+
+    assert connector.departures == []
+    assert fake_api.requests == [DEPARTURES_PATH, EMPTY_PROBE_PATH]
+    assert "PTV: empty-result departure probe failed" in caplog.text
+    assert not warning_messages(caplog, "PTV:")
 
 
 @pytest.mark.asyncio
