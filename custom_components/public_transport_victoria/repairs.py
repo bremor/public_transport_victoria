@@ -19,7 +19,7 @@ path.  This module is also the integration's ``repairs`` platform: Home
 Assistant discovers :func:`async_create_fix_flow` for the fixable issues.
 
 Policy notes: automatic diagnosis is gated by entry age (24 h) and a persisted
-6 h cooldown, and a repair issue is only raised after two consecutive stale
+48 h cooldown, and a repair issue is only raised after two consecutive stale
 classifications (``diag_streak``) so a genuinely quiet direction does not nag.
 The options-flow check is user-initiated: it bypasses the cooldown and counts
 toward (and can complete) the same streak.

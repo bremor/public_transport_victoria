@@ -38,7 +38,7 @@ EMPTY_DEPARTURES_PATH = (
 # Persistent empties (for example an overnight quiet period) must not repeat
 # the diagnosis on every poll.  The coordinator persists this cooldown in the
 # config entry, so it survives reloads and restarts.
-EMPTY_DIAG_COOLDOWN = datetime.timedelta(hours=6)
+EMPTY_DIAG_COOLDOWN = datetime.timedelta(hours=48)
 
 # One explicit timeout for every PTV request.  The API is a plain JSON
 # service, so a whole request that takes longer than 30 seconds is stalled.
